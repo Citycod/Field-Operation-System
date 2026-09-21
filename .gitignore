@@ -2,11 +2,12 @@
 node_modules
 .pnpm-store
 
-# Next.js
+# Next.js & TypeScript build info
 .next/
 out/
 build/
 dist/
+*.tsbuildinfo
 
 # Logs
 npm-debug.log*
