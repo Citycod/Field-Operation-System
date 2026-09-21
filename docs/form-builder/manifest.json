@@ -1,0 +1,19 @@
+{
+  "package": "Form Builder MVP Codex Documentation Pack",
+  "created": "2026-09-19",
+  "files": [
+    "AGENTS.md",
+    "FORM_BUILDER_MASTER_SPEC.md",
+    "README.md",
+    "docs/form-builder/00-MVP-SCOPE.md",
+    "docs/form-builder/01-UI-UX-SPEC.md",
+    "docs/form-builder/02-FORM-SCHEMA-SPEC.md",
+    "docs/form-builder/03-DATA-MODEL.md",
+    "docs/form-builder/04-API-SERVICE-CONTRACTS.md",
+    "docs/form-builder/05-AUTH-TENANCY-PERMISSIONS.md",
+    "docs/form-builder/06-IMPLEMENTATION-PLAN.md",
+    "docs/form-builder/07-TESTING-ACCEPTANCE.md",
+    "docs/form-builder/08-DECISIONS-LOG.md",
+    "docs/form-builder/ui/README.md"
+  ]
+}
