@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" --filter \"./packages/*\" dev",
     "dev:web": "pnpm --filter web dev",
-    "dev:directus": "docker-compose -f infra/docker/docker-compose.yml up",
+    "supabase": "supabase",
     "build": "pnpm --filter \"./apps/*\" --filter \"./packages/*\" build",
     "lint": "pnpm --recursive run lint",
     "typecheck": "pnpm --recursive run typecheck",

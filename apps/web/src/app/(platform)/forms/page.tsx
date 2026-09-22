@@ -99,7 +99,7 @@ export default function FormBuilderPlaceholderPage() {
               <span>6. S3-Compatible Media</span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Directus file upload integration for photos, signatures, and attachments.
+              Supabase Storage integration for photos, signatures, and attachments.
             </p>
           </div>
         </div>

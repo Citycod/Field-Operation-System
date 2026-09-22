@@ -1,7 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthState, Organization, UserProfile, PlatformRole, OrganizationMembership } from '@field/types';
+import { createClient } from '@/lib/supabase/client';
+import { getCurrentUser, getUserMemberships, getUserOrganizations } from '@/lib/supabase/auth';
 
 interface AuthContextType extends AuthState {
   setActiveOrganization: (org: Organization) => void;
@@ -18,7 +20,7 @@ const MOCK_USER: UserProfile = {
 
 const MOCK_ORGS: Organization[] = [
   {
-    id: 'org_nig_og',
+    id: 'a0000000-0000-0000-0000-000000000001',
     name: 'West African Offshore Services Ltd',
     slug: 'wa-offshore',
     status: 'active',
@@ -26,7 +28,7 @@ const MOCK_ORGS: Organization[] = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: 'org_uk_rental',
+    id: 'a0000000-0000-0000-0000-000000000002',
     name: 'Caledonian Heavy Equipment Rentals',
     slug: 'caledonian-rentals',
     status: 'active',
@@ -35,32 +37,94 @@ const MOCK_ORGS: Organization[] = [
   },
 ];
 
+const MOCK_MEMBERSHIPS: OrganizationMembership[] = [
+  {
+    id: 'mem_1',
+    organization_id: 'a0000000-0000-0000-0000-000000000001',
+    user_id: 'usr_1',
+    role_key: 'business_admin' as PlatformRole,
+    status: 'active' as const,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 'mem_2',
+    organization_id: 'a0000000-0000-0000-0000-000000000002',
+    user_id: 'usr_1',
+    role_key: 'manager' as PlatformRole,
+    status: 'active' as const,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+];
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user] = useState<UserProfile | null>(MOCK_USER);
-  const [activeOrganization, setActiveOrg] = useState<Organization | null>(MOCK_ORGS[0]);
-  const [memberships] = useState<OrganizationMembership[]>([
-    {
-      id: 'mem_1',
-      organization_id: 'org_nig_og',
-      user_id: 'usr_1',
-      role_key: 'business_admin' as PlatformRole,
-      status: 'active' as const,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: 'mem_2',
-      organization_id: 'org_uk_rental',
-      user_id: 'usr_1',
-      role_key: 'manager' as PlatformRole,
-      status: 'active' as const,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [activeOrganization, setActiveOrg] = useState<Organization | null>(null);
+  const [memberships, setMemberships] = useState<OrganizationMembership[]>([]);
+  const [, setOrganizations] = useState<Organization[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadAuth() {
+      // If Supabase URL is placeholder/not configured, fall back to default demo state
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
+        setUser(MOCK_USER);
+        setMemberships(MOCK_MEMBERSHIPS);
+        setOrganizations(MOCK_ORGS);
+        setActiveOrg(MOCK_ORGS[0]);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+          const userMemberships = await getUserMemberships(currentUser.id);
+          setMemberships(userMemberships);
+
+          if (userMemberships.length > 0) {
+            const orgIds = userMemberships.map((m) => m.organization_id);
+            const userOrgs = await getUserOrganizations(orgIds);
+            setOrganizations(userOrgs);
+            setActiveOrg(userOrgs[0] || null);
+          }
+        } else {
+          setUser(null);
+          setMemberships([]);
+          setOrganizations([]);
+          setActiveOrg(null);
+        }
+      } catch {
+        setUser(MOCK_USER);
+        setMemberships(MOCK_MEMBERSHIPS);
+        setOrganizations(MOCK_ORGS);
+        setActiveOrg(MOCK_ORGS[0]);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadAuth();
+
+    let unsubscribeFn = () => {};
+
+    // Listen to Supabase auth state changes if configured
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
+      const supabase = createClient();
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+        loadAuth();
+      });
+      unsubscribeFn = () => subscription.unsubscribe();
+    }
+
+    return () => {
+      unsubscribeFn();
+    };
+  }, []);
 
   const currentRole = activeOrganization
     ? (memberships.find((m) => m.organization_id === activeOrganization.id)?.role_key || 'employee')
@@ -68,6 +132,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     setIsLoading(true);
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    }
+    setUser(null);
+    setActiveOrg(null);
+    setMemberships([]);
+    setOrganizations([]);
     setIsLoading(false);
   };
 

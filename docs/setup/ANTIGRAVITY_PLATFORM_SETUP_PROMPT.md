@@ -1,4 +1,7 @@
 # Antigravity Project Setup Prompt
+> [!NOTE]
+> **Superceded Notice:** The initial Directus backend choice described in this document was migrated to **Supabase** via `ANTIGRAVITY_DIRECTUS_TO_SUPABASE_CORRECTION_PROMPT.md`.
+
 ## Field Workforce & Operations Management Platform — Initial Foundation Setup
 
 You are setting up the initial codebase for a production-grade **Field Workforce & Operations Management Platform**.

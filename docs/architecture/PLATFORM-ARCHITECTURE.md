@@ -8,17 +8,18 @@ The **Field Workforce & Operations Management Platform** is structured as a mult
                ┌───────────────────────────────┐
                │    Next.js PWA (apps/web)     │
                └───────────────┬───────────────┘
-                               │ HTTP / Directus SDK
+                               │ Supabase JS / SSR Client
                                ▼
                ┌───────────────────────────────┐
-               │  Directus API & Data Layer    │
+               │       Supabase Platform       │
+               │  (PostgreSQL + Auth + Storage)│
                └───────┬───────────────┬───────┘
                        │               │
-            PostgreSQL │               │ S3 Protocol
+            PostgreSQL │               │ Storage API
                        ▼               ▼
           ┌─────────────────┐    ┌────────────────────────┐
-          │ PostgreSQL DB   │    │ Cloudflare R2 / S3     │
-          │ (Multi-tenant)  │    │ (Shared Media/Files)   │
+          │ PostgreSQL DB   │    │ Supabase Storage       │
+          │ (Multi-tenant)  │    │ (platform-files Bucket)│
           └─────────────────┘    └────────────────────────┘
 ```
 
@@ -27,18 +28,18 @@ The **Field Workforce & Operations Management Platform** is structured as a mult
 All operational entities belong to an **Organization** (tenant).
 
 ```text
-User ──► OrganizationMembership ──► Organization
-                                         │
-                                         ├── Form Definitions
-                                         ├── Form Submissions
-                                         ├── Work Orders / Jobs
-                                         └── Assets / Evidence
+auth.users ──► organization_memberships ──► organizations
+                                                  │
+                                                  ├── Form Definitions
+                                                  ├── Form Submissions
+                                                  ├── Work Orders / Jobs
+                                                  └── Assets / Evidence
 ```
 
 ### Multi-Tenancy Enforcement Principles:
 1. **Database Schema Level:** Every tenant-owned table contains `organization_id`.
-2. **Backend API Level:** Directus roles and custom security filters enforce `organization_id` isolation.
-3. **Application Layer:** Frontend utilities (`requireOrganizationMembership`, `getActiveOrganization`) guard context.
+2. **Database Security Boundary:** PostgreSQL Row Level Security (RLS) policies enforce `organization_id` isolation using `auth.uid()` and `is_organization_member()`.
+3. **Application Layer:** Frontend utilities (`validateOrganizationMembership`, `useAuth`) guard user context and role authorization.
 
 ## 3. Form Builder Module Integration
 

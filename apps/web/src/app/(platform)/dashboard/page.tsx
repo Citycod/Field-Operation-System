@@ -68,7 +68,7 @@ export default function DashboardPage() {
             <Activity className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-            Directus + Postgres
+            Supabase Platform
           </div>
           <p className="text-[11px] text-slate-500">
             Storage: <span className="text-slate-700 dark:text-slate-300 font-mono">S3-Compatible (R2/AWS)</span>

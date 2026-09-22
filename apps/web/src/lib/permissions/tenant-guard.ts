@@ -13,6 +13,9 @@ export interface TenantContext {
   roleKey: string;
 }
 
+/**
+ * Pure validation helper for verifying user membership in target organization.
+ */
 export function validateOrganizationMembership(
   userId: string,
   targetOrganizationId: string,

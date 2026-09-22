@@ -33,7 +33,7 @@ export default function LoginPage() {
         </form>
 
         <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-slate-200 dark:border-slate-800">
-          Powered by Directus Shared Auth & Multi-Tenancy
+          Powered by Supabase Auth & Multi-Tenancy
         </div>
       </div>
     </div>

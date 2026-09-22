@@ -5,9 +5,9 @@ Production-grade multi-tenant platform for field-service and operational busines
 ## Architecture
 
 - **Frontend:** Next.js (App Router), React, TypeScript, TailwindCSS, PWA-first architecture.
-- **Backend & Data Layer:** Directus headless API engine.
-- **Database:** PostgreSQL (Multi-tenant schema with strict `organization_id` scoping).
-- **Storage:** S3-compatible Object Storage (Cloudflare R2 / AWS S3).
+- **Backend & Data Layer:** Supabase Platform (PostgreSQL + Auth + Storage + Row Level Security).
+- **Database:** PostgreSQL (Multi-tenant schema with strict `organization_id` scoping and RLS policies).
+- **Storage:** Supabase Storage (`platform-files` private bucket with RLS policies).
 - **Module Architecture:** Form Builder is an integrated module inside the platform shell.
 
 ## Directory Structure
@@ -16,17 +16,17 @@ Production-grade multi-tenant platform for field-service and operational busines
 field-workforce-platform/
 ├── apps/
 │   └── web/                   # Next.js App Router Web Platform
-├── directus/                  # Directus extensions, snapshots & schema
+├── supabase/                  # Supabase migrations, seed.sql, config.toml & CLI docs
 ├── packages/
 │   ├── ui/                    # Shared React enterprise design system primitives
-│   ├── types/                 # Shared TypeScript domain types
+│   ├── types/                 # Shared TypeScript domain types & DB schemas
 │   ├── config/                # Shared configurations
 │   └── form-engine/           # Form Builder engine (placeholder until Phase 1)
 ├── docs/
 │   ├── form-builder/          # Approved Form Builder specifications
 │   └── architecture/          # Platform architecture docs
 └── infra/
-    └── docker/                # Docker compose for Directus + PostgreSQL
+    └── docker/                # Optional Docker compose for local PostgreSQL
 ```
 
 ## Setup & Running
@@ -34,20 +34,17 @@ field-workforce-platform/
 ### Prerequisites
 - Node.js `22.x` (see `.nvmrc`)
 - pnpm `9.x` or higher
-- Docker & Docker Compose (for local database and Directus backend)
+- Supabase Project credentials or local Supabase CLI
 
 ### Installation
 ```bash
 pnpm install
 ```
 
-### Start Local Infrastructure (Directus + Postgres)
-```bash
-pnpm dev:directus
-```
-
 ### Start Web Application
 ```bash
+pnpm dev
+# or
 pnpm dev:web
 ```
 
