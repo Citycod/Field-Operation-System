@@ -2,8 +2,13 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthState, Organization, UserProfile, PlatformRole, OrganizationMembership } from '@field/types';
+import { AuthService } from './auth-service';
+import { SupabaseAuthService } from './supabase-auth-service';
+import { OrganizationRepository } from '@/lib/repositories/organization-repository';
+import { SupabaseOrganizationRepository } from '@/lib/repositories/supabase/supabase-organization-repository';
+import { MembershipRepository } from '@/lib/repositories/membership-repository';
+import { SupabaseMembershipRepository } from '@/lib/repositories/supabase/supabase-membership-repository';
 import { createClient } from '@/lib/supabase/client';
-import { getCurrentUser, getUserMemberships, getUserOrganizations } from '@/lib/supabase/auth';
 
 interface AuthContextType extends AuthState {
   setActiveOrganization: (org: Organization) => void;
@@ -60,6 +65,11 @@ const MOCK_MEMBERSHIPS: OrganizationMembership[] = [
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Injected default services/repositories
+const defaultAuthService: AuthService = new SupabaseAuthService();
+const defaultOrgRepository: OrganizationRepository = new SupabaseOrganizationRepository();
+const defaultMembershipRepository: MembershipRepository = new SupabaseMembershipRepository();
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeOrganization, setActiveOrg] = useState<Organization | null>(null);
@@ -69,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function loadAuth() {
-      // If Supabase URL is placeholder/not configured, fall back to default demo state
+      // Fallback for unconfigured dev environment
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
         setUser(MOCK_USER);
         setMemberships(MOCK_MEMBERSHIPS);
@@ -80,15 +90,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const currentUser = await getCurrentUser();
+        const currentUser = await defaultAuthService.getCurrentUser();
         if (currentUser) {
           setUser(currentUser);
-          const userMemberships = await getUserMemberships(currentUser.id);
+          const userMemberships = await defaultMembershipRepository.findByUserId(currentUser.id);
           setMemberships(userMemberships);
 
           if (userMemberships.length > 0) {
             const orgIds = userMemberships.map((m) => m.organization_id);
-            const userOrgs = await getUserOrganizations(orgIds);
+            const userOrgs = await defaultOrgRepository.findManyByIds(orgIds);
             setOrganizations(userOrgs);
             setActiveOrg(userOrgs[0] || null);
           }
@@ -112,7 +122,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let unsubscribeFn = () => {};
 
-    // Listen to Supabase auth state changes if configured
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
       const supabase = createClient();
       const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
@@ -133,8 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setIsLoading(true);
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+      await defaultAuthService.signOut();
     }
     setUser(null);
     setActiveOrg(null);

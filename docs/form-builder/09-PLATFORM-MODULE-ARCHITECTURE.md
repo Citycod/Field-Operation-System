@@ -59,7 +59,16 @@ Configured Business Form
 Submission + Workflow
 ```
 
+## Infrastructure Boundaries & Portability
+
+The Form Builder module consumes platform capabilities via provider-neutral interfaces:
+
+- **Storage**: Files are uploaded/managed via `StorageService` using key format `{organization_id}/{module}/{entity_id}/{uuid}-{filename}`. No bucket names or provider SDKs are exposed to the module.
+- **Auth & Identity**: User identity is derived from authenticated session context (`AuthService`, `assertTenantAccessFromSession`). No client-provided `userId` parameters are trusted for server operations.
+- **Form Engine Isolation**: `packages/form-engine` remains pure domain logic with 0 dependencies on external BaaS SDKs.
+
 ## Future Modules Using Form Builder
+
 
 - Procurement
 - Visitor Management

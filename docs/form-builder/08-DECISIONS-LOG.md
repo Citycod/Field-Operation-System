@@ -292,6 +292,20 @@ Core architecture/schema
 
 ---
 
+## ADR-024 — Supabase Portability & Infrastructure Decoupling
+
+**Status:** Approved Architectural Decision  
+**Date:** 2026-09-25
+
+Decision:
+1. Use Supabase (PostgreSQL + Auth + Storage + RLS) for MVP and early-stage production.
+2. Business logic and Form Engine code (`packages/form-engine`) must have zero direct dependencies on `@supabase/*` SDKs.
+3. Storage API is accessed strictly through a provider-neutral `StorageService` interface; object keys follow `{organization_id}/{module}/{entity_id}/{uuid}-{filename}`.
+4. User identity is strictly resolved from authenticated session context (`auth.uid()`, `assertTenantAccessFromSession`). Client-provided `userId` parameters are never trusted for server authorization.
+5. Migration exit paths are fully documented (`SUPABASE-PORTABILITY.md`) covering Self-Hosted Supabase and PostgreSQL + decoupled Auth (e.g. Better Auth, Keycloak, Clerk) + S3 Storage (AWS S3, Cloudflare R2, MinIO).
+
+---
+
 ## Adding a new decision
 
 Use:
@@ -308,3 +322,4 @@ Supersedes:
 ```
 
 Never silently reverse a prior Approved ADR.
+
