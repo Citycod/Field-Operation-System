@@ -1,7 +1,7 @@
-import { FormSchemaV1 } from '../schema/form-schema';
 import { FieldDefinition } from '../schema/fields';
 import { FormTabUnion, DetailsTabDefinition, NotesTabDefinition, DocumentsTabDefinition } from '../schema/tabs';
 import { ValidationResult, ValidationError, ValidationWarning } from './types';
+import { validateStructure } from './structure-validator';
 
 const VALID_FIELD_TYPES = ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'lookup', 'file', 'calculated'] as const;
 const VALID_TAB_TYPES = ['form', 'details', 'notes', 'documents'] as const;
@@ -19,6 +19,9 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
       passedChecks: [],
     };
   }
+
+  const structuralErrors = validateStructure(schema);
+  if (structuralErrors.length) return { valid: false, errors: structuralErrors, warnings, passedChecks };
 
   const s = schema as Record<string, unknown>;
 
@@ -187,6 +190,9 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
         if (!dt.configuration || typeof dt.configuration !== 'object') {
           errors.push({ path: `tabs[${idx}].configuration`, message: 'Details tab missing configuration', code: 'INVALID_DETAILS_CONFIG' });
         } else {
+          if (Array.isArray(dt.configuration.columns)) {
+            dt.configuration.columns.forEach((column, cIdx) => validateField(column, `tabs[${idx}].configuration.columns[${cIdx}]`));
+          }
           if (!Array.isArray(dt.configuration.columns)) {
             errors.push({ path: `tabs[${idx}].configuration.columns`, message: 'Details tab configuration missing columns array', code: 'INVALID_DETAILS_CONFIG' });
           }

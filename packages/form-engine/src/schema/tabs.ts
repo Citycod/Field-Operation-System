@@ -1,4 +1,4 @@
-import { FieldDefinition } from './fields';
+import { FieldDefinition, OptionItem } from './fields';
 
 export type TabType = 'form' | 'details' | 'notes' | 'documents';
 
@@ -33,6 +33,7 @@ export interface DetailsColumnDefinition {
   order: number;
   required?: boolean;
   readOnly?: boolean;
+  options?: OptionItem[];
   lookupConfig?: FieldDefinition extends infer F ? (F extends { lookupConfig: infer L } ? L : never) : never;
   calculationConfig?: FieldDefinition extends infer F ? (F extends { calculationConfig: infer C } ? C : never) : never;
 }

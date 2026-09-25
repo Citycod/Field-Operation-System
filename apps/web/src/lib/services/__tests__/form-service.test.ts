@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FormService } from '../form-service';
 import { FormRepository, FormEntity, FormVersionEntity } from '../../repositories/form-repository';
 import { MembershipRepository } from '../../repositories/membership-repository';
@@ -305,4 +305,27 @@ describe('FormService', () => {
     expect(updatedForm3?.current_draft_version_id).toBeNull();
     expect(updatedForm3?.current_published_version_id).toBe(draftV2.id);
   });
+  it('saves an incomplete draft but blocks publishing the same schema', async () => {
+    const { form, version } = await formService.createForm({ userId: userA, organizationId: orgA, key: 'incomplete', title: 'Incomplete' });
+    const schema = structuredClone(MINIMAL_VALID_SCHEMA);
+    schema.rules = [{ id: 'rule', key: 'rule', name: 'Incomplete', conditions: [{ fieldId: 'future-field', operator: 'equals', value: true }], actions: [{ targetFieldId: 'future-field', action: 'show' }] }];
+    await formService.saveDraft({ userId: userA, organizationId: orgA, formId: form.id, versionId: version.id, schema });
+    expect(formRepo.versions.get(version.id)?.schema_jsonb).toEqual(schema);
+    const publish = vi.spyOn(formRepo, 'publishVersion');
+    await expect(formService.publishForm({ userId: userA, organizationId: orgA, formId: form.id, versionId: version.id })).rejects.toThrow('Cannot publish');
+    expect(publish).not.toHaveBeenCalled();
+    expect(formRepo.versions.get(version.id)?.status).toBe('draft');
+  });
+
+  it.each(['disabled', 'employee', 'unrelated'])('blocks %s membership before writing', async kind => {
+    vi.spyOn(membershipRepo, 'findUserMembershipInOrg').mockResolvedValue(kind === 'unrelated' ? null : {
+      id: 'membership', organization_id: orgA, user_id: userA,
+      role_key: kind === 'employee' ? 'employee' : 'business_admin',
+      status: kind === 'disabled' ? 'disabled' : 'active', created_at: '', updated_at: '',
+    });
+    const create = vi.spyOn(formRepo, 'createForm');
+    await expect(formService.createForm({ userId: userA, organizationId: orgA, key: 'denied', title: 'Denied' })).rejects.toThrow('Unauthorized');
+    expect(create).not.toHaveBeenCalled();
+  });
+
 });

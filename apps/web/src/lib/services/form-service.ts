@@ -10,8 +10,8 @@ export class FormService {
 
   private async checkMembership(userId: string, organizationId: string): Promise<void> {
     const membership = await this.membershipRepository.findUserMembershipInOrg(userId, organizationId);
-    if (!membership || membership.status !== 'active') {
-      throw new Error(`Unauthorized: User ${userId} is not an active member of organization ${organizationId}`);
+    if (!membership || membership.status !== 'active' || !['business_admin', 'super_admin'].includes(membership.role_key)) {
+      throw new Error(`Unauthorized: User ${userId} does not have active form-management permission in organization ${organizationId}`);
     }
   }
 
