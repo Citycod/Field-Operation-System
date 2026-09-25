@@ -6,9 +6,9 @@ describe('Platform Foundation Smoke Tests', () => {
     expect(process.env.NEXT_PUBLIC_APP_NAME || 'Field Workforce Platform').toBeDefined();
   });
 
-  it('verifies form engine placeholder status', () => {
+  it('verifies form engine status', () => {
     const status = getFormEngineStatus();
-    expect(status.status).toBe('placeholder');
+    expect(status.status).toBe('active');
     expect(status.modulesPlanned).toContain('schema');
     expect(status.modulesPlanned).toContain('renderer');
   });
