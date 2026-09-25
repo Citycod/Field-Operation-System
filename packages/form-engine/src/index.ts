@@ -1,19 +1,11 @@
-export const FORM_ENGINE_VERSION = '0.1.0-placeholder';
+export * from './schema';
+export * from './validation';
+export * from './fixtures';
 
-export interface FormEngineStatus {
-  status: 'placeholder';
-  modulesPlanned: string[];
+export function getFormEngineStatus() {
+  return {
+    status: 'active',
+    version: '1.0.0',
+    modulesPlanned: ['schema', 'validation', 'renderer', 'rules', 'workflow'],
+  };
 }
-
-export const getFormEngineStatus = (): FormEngineStatus => ({
-  status: 'placeholder',
-  modulesPlanned: [
-    'schema',
-    'registry',
-    'renderer',
-    'rules',
-    'calculations',
-    'validation',
-    'versioning',
-  ],
-});
