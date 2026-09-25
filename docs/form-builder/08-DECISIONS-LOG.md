@@ -306,6 +306,32 @@ Decision:
 
 ---
 
+## ADR-025 — Phase 1 publication and snapshot hardening
+
+**Status:** Implemented for Phase 1 verification; live deployment pending
+
+The publish RPC takes only form/version IDs, derives identity from `auth.uid()`,
+uses `SECURITY INVOKER` with an empty search path, and serializes publication on
+the form row. The legacy caller-identity overload is removed by a new migration.
+Existing platform role helpers enforce active Business Admin/Super Admin writes;
+the FormService performs the same role check in addition to database enforcement.
+
+Published and archived snapshots cannot change structural fields or audit metadata,
+return to Draft, or be deleted. Only editorial `change_note` and the one-way
+Published-to-Archived transition remain mutable. Database tests cover every
+protected field and the status-transition bypass.
+
+Draft validation checks safe containers/configuration; Publish additionally checks
+references and completed workflow selections. Stage order follows the existing
+zero-based consecutive convention. Calculation aggregate sources resolve both
+Details tab key and column key. Field IDs/keys, including Details columns, are
+globally unique. Existing serialized property names/layout widths are preserved.
+
+PostgreSQL integration coverage is kept distinct from hosted Supabase verification.
+See `PHASE1-VERIFICATION.md` for the executed checks and deployment blockers.
+
+---
+
 ## Adding a new decision
 
 Use:
@@ -322,4 +348,3 @@ Supersedes:
 ```
 
 Never silently reverse a prior Approved ADR.
-
