@@ -1,5 +1,9 @@
 # Phase 1 final hardening verification — 2026-09-25
 
+For the latest hosted access, credential, and catalog findings, see
+[the 2026-09-29 hosted verification report](PHASE1-HOSTED-VERIFICATION.md).
+The results below record the earlier local verification pass.
+
 Status: local hardening verified; **not yet locked against the actual Supabase development project**.
 No Phase 2 implementation was started.
 
