@@ -90,6 +90,7 @@ Tab title is separate from tab type.
 **Status:** MVP approved
 
 Types:
+
 - Form / Fields
 - Details / Grid
 - Notes
@@ -129,6 +130,7 @@ Those may come from future templates or configurable metadata.
 **Status:** Approved by boss
 
 Direction:
+
 - enterprise
 - Microsoft Dynamics-inspired
 - green/white
@@ -169,6 +171,7 @@ Historical submissions stay linked to original version.
 **Status:** Approved scope
 
 Actions:
+
 - Approve
 - Reject
 - Return
@@ -232,6 +235,7 @@ Every tenant-owned entity/query/action must verify organization context.
 
 Reason:
 Needed for:
+
 - row attachments
 - audit
 - edits
@@ -246,6 +250,7 @@ Do not treat them as anonymous UI arrays only.
 **Status:** Approved direction
 
 Notes preserve history with:
+
 - author
 - timestamp
 - visibility
@@ -298,6 +303,7 @@ Core architecture/schema
 **Date:** 2026-09-25
 
 Decision:
+
 1. Use Supabase (PostgreSQL + Auth + Storage + RLS) for MVP and early-stage production.
 2. Business logic and Form Engine code (`packages/form-engine`) must have zero direct dependencies on `@supabase/*` SDKs.
 3. Storage API is accessed strictly through a provider-neutral `StorageService` interface; object keys follow `{organization_id}/{module}/{entity_id}/{uuid}-{filename}`.
@@ -352,6 +358,32 @@ submission persistence, and authoritative server validation remain later phases.
 
 See `PHASE2-VERIFICATION.md` for API boundaries, test evidence, visual captures,
 and the documented Phase 2 limits.
+
+---
+
+## ADR-027 — Visual builder authors the locked schema directly
+
+**Status:** Implemented in Phase 3
+**Date:** 2026-09-30
+
+The reusable visual builder lives in `packages/form-builder`. Its editing state
+is the existing `FormSchemaV1`; it does not introduce a persisted builder model
+or translate through a parallel schema. Stable IDs are created once and survive
+property edits and reordering, while array order values are normalized after
+structural moves.
+
+Preview passes the current draft schema directly to the Phase 2 renderer after
+the Form Engine draft validator accepts it. Save is an injected host callback so
+the application can use the authorized `FormService.saveDraft` boundary without
+placing Supabase, repository, auth, tenant, or Next.js request dependencies in
+builder core. The development route uses local state only.
+
+The canonical later-module navigation remains visible, but this phase implements
+Design only. Data Sources, Rules, calculations execution, Workflow, List View,
+Versions, publishing, and production file behavior remain outside Phase 3.
+
+See `PHASE3-VERIFICATION.md` for implemented behavior, browser evidence, and
+quality-gate results.
 
 ---
 

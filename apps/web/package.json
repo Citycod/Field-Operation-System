@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@field/config": "workspace:*",
+    "@field/form-builder": "workspace:*",
     "@field/types": "workspace:*",
     "@field/ui": "workspace:*",
     "@supabase/ssr": "^0.5.2",

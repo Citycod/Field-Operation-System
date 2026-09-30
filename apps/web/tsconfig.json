@@ -24,6 +24,7 @@
       "@field/types": ["../../packages/types/src"],
       "@field/ui": ["../../packages/ui/src"],
       "@field/config": ["../../packages/config"],
+      "@field/form-builder": ["../../packages/form-builder/src"],
       "@field/form-engine": ["../../packages/form-engine/src"],
       "@field/form-renderer": ["../../packages/form-renderer/src"]
     }
