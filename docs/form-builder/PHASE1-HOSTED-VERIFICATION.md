@@ -1,126 +1,143 @@
-# Phase 1 hosted verification — 2026-09-29
+# Phase 1 hosted verification — 2026-09-30
 
 **Result: BLOCKED, not LOCKED. No Phase 2 work, push, or merge.**
 
-This report supplements the historical local verification in
-`PHASE1-VERIFICATION.md`. After the user requested proceeding with the remaining
-checks despite the unresolved exposed-key issue, hosted access was investigated
-without treating that instruction as evidence of credential revocation.
+## Exact blocker
 
-## Security and workspace
+The genuine hosted test runner stopped during fixture setup: inserting a test
+organization using the replacement administrative secret returned HTTP 403,
+PostgreSQL code `42501`. A subsequent read-only catalog query confirmed:
 
-- `.env.example` is restored to the committed, placeholder-only template.
-- The actual `.env` is ignored and has mode `0600`.
-- `SUPABASE_PROJECT_REF` was normalized from a dashboard URL to the project
-  reference after confirming it matched `SUPABASE_URL`.
-- The exposed `SUPABASE_SECRET_KEY` still matches the local value and returned
-  HTTP 200 in a live authentication check. It is **not verified revoked**.
-- A different local `SUPABASE_SERVICE_ROLE_KEY` also returned HTTP 200. Its
-  existence does not prove revocation of the exposed key.
-- Management access can list keys (HTTP 200), but the attempted creation of a
-  replacement key returned HTTP 403. No replacement was created by that attempt;
-  no old key was deleted.
-- No credential values were printed or written into this report.
-- Existing untracked `AGENT_RULES.md`, `BACKEND_ARCHITECTURE.md`,
-  `IMPLEMENTATION_ROADMAP.md`, `README (1).md`, and `UI screens/` were preserved.
+| Hosted role | public schema USAGE | organizations INSERT | forms SELECT | forms INSERT |
+| --- | --- | --- | --- | --- |
+| authenticated | true | false | false | false |
+| service_role | true | false | false | false |
+| anon | true | false | false | false |
+
+`service_role` has BYPASSRLS, but that does not confer table privileges.
+The committed foundation/Form Builder migrations create tables and policies
+without explicitly granting the required table access. This hosted project
+has not supplied those grants automatically. Policy existence therefore does
+not establish working authorized access.
+
+Per the user's instruction to stop on a hosted failure, no grant fix was applied
+and the test run was not retried. The next implementation step is an append-only
+migration with appropriately scoped table grants for authenticated operations
+and administrative provisioning, followed by rerunning the hosted gate. Do not
+grant anonymous access as a shortcut. Preserve the existing RLS restrictions.
+
+## Security
+
+- The exposed credential was a Supabase server secret API key,
+  `SUPABASE_SECRET_KEY`; no credential values are included here.
+- Management write access is now available. A replacement secret key was created
+  and atomically stored in the ignored local `.env`, retaining mode `0600`.
+- The compromised key was deleted using the management API. Initial gateway
+  probes continued accepting it during propagation; the final probe returned
+  **HTTP 401**, matching an invalid-key control. The replacement passed gateway
+  authentication (HTTP 404 for the deliberately nonexistent probe table).
+- Management inventory confirms the old key is absent and the replacement is
+  present. The replacement also successfully created and signed in four Auth
+  test users; its later table-permission failure is separate from authentication.
+- `.env.example` contains placeholders only. `.env`, `.env.local`, nested
+  application `.env.local`, and the Supabase link/cache are gitignored.
+- Existing unrelated untracked files were preserved.
 
 The exposed secret was introduced by `50d0ba15aa5a5d2f1666bf2a7195d11c81152870`.
-Its SHA-256 fingerprint is
-`56d1ef684fdcd4e3d42727df9ae5ae82f26b5b39ed1442d081084402a5560f5d`.
-It remains in that commit and these descendant snapshots:
-`b54e7f8`, `2d7e73d`, `3bafea9`, `93b5c9e`, `63b038c`, `5cc3b43`, `78a181c`.
-Commit `57e685c` removed live credentials from the current template, not history.
+It remains in that commit and descendant snapshots `b54e7f8`, `2d7e73d`,
+`3bafea9`, `93b5c9e`, `63b038c`, `5cc3b43`, and `78a181c`.
+Commit `57e685c` sanitized the template; history was not rewritten.
 The cached `origin/refactor/supabase-portability` ref points to the introducing
-commit; a fresh GitHub ref check was blocked by missing GitHub authentication,
-so current remote branch state was not independently confirmed.
+commit. Current GitHub branch state has not been independently verified because
+fresh remote authentication was unavailable in the preceding pass.
 
-## CLI and project link
+## Hosted migration and catalog verification
 
-Supabase CLI **2.118.0** was downloaded through `pnpm dlx supabase`; no project
-dependencies or architecture were changed. The local `.env` was loaded privately
-for CLI calls and output was scrubbed before being displayed.
+The repository is linked to development project `corzsaybyrtuqsyhwmyv`.
+Supabase CLI 2.118.0 was invoked through `pnpm dlx supabase`, privately loading
+local environment variables. No dependencies or architecture were changed.
 
-`supabase link --project-ref corzsaybyrtuqsyhwmyv --yes` succeeded (exit 0).
-The resulting `supabase/.temp/` project link/cache remains ignored.
+`supabase db push --dry-run --yes` and `supabase db push --yes` both succeeded.
+All pending committed migrations were applied through the approved CLI workflow:
 
-`supabase db push --dry-run --yes` failed (exit 1) with `DbConnectError`:
-connection to `aws-1-eu-west-1.pooler.supabase.com` timed out. This attempt ran
-outside the filesystem/network sandbox. No migrations were applied. A mutating
-`db push` was not run after its prerequisite connection failed.
+1. `20260922000000_init_tenant_schema.sql`
+2. `20260925000000_form_builder_phase_1.sql`
+3. `20260925010000_harden_form_builder_phase_1.sql`
 
-An HTTPS fallback capability check also succeeded, but the management SQL
-session reported `current_user = supabase_read_only_user` and
-`transaction_read_only = on`, even when the request specified `read_only: false`.
-Only harmless SELECT queries were used for this check. The token therefore did
-not provide a writable database session through this route; no migration SQL was
-submitted through the management API. The preflight also found no migration-history
-table and no `public.organizations` foundation table.
+The hosted `supabase_migrations.schema_migrations` history records all three.
+Direct hosted catalog checks passed for:
 
-## Direct hosted catalog verification
+- `public.forms` and `public.form_versions`, both with RLS enabled.
+- Unique partial index `one_active_draft_per_form`, filtering `status = 'draft'`.
+- Composite `form_versions_org_form_fkey` linking `(organization_id, form_id)`
+  to `forms(organization_id, id)`.
+- Two-argument `publish_form_version` using SECURITY INVOKER and `auth.uid()`.
+  The legacy three-argument caller-identity overload is absent.
+- Two enabled immutability triggers and seven Form Builder RLS policies.
 
-Supabase's [read-only management SQL endpoint](https://supabase.com/docs/reference/api/v1-read-only-query)
-was reachable over HTTPS and returned HTTP 201. The query inspected only
-`pg_catalog` tables/views; it did not read application records or modify data.
+These are catalog checks, not successful authenticated RLS/lifecycle tests.
+The function body derives publisher identity from `auth.uid()`, but its hosted
+execution and impersonation rejection remain unverified after the setup failure.
 
-| Required object | Actual hosted catalog result |
+## Genuine generated types
+
+`supabase gen types typescript --linked --schema public` completed successfully.
+Its actual stdout replaced `packages/types/src/database.ts`, after checking that
+both Form Builder tables were present. Types were not manually approximated.
+These new types have not passed application quality gates yet; the requested
+stop-on-failure condition was reached before those gates.
+
+## Hosted tests and cleanup
+
+Added an opt-in, fail-fast runner:
+
+```bash
+python3 supabase/tests/phase1_hosted.py --project-ref corzsaybyrtuqsyhwmyv
+```
+
+It reads credentials privately from ignored `.env`, verifies the project link,
+checks the catalog, creates synthetic users/organizations, and uses real password
+sessions with the public API key for normal tenant operations. Administrative
+credentials are reserved for provisioning and cleanup.
+
+Executed result: six catalog checks passed; four Auth users were created and
+signed in; organization provisioning failed with HTTP 403 / `42501`.
+All created Auth test users were removed. Scoped fixture cleanup completed.
+The runner's administrative cleanup uses transaction-local replication settings
+and generated UUIDs to remove its own immutable test snapshots; that cleanup is
+not evidence that ordinary published-version deletion is allowed.
+
+**Not executed:** hosted tenant-isolation assertions; disabled/unrelated/anonymous
+access assertions; cross-tenant publish; publisher impersonation; draft saving;
+V1/V2 publication; immutable-field/delete assertions; duplicate-draft insertion.
+No hosted RLS or lifecycle pass is claimed.
+
+## Quality gates and evidence boundaries
+
+| Gate | This pass |
 | --- | --- |
-| `public.forms` | Absent |
-| `public.form_versions` | Absent |
-| `one_active_draft_per_form` | Absent |
-| `form_versions_org_form_fkey` | Absent |
-| `public.publish_form_version` | Absent |
-| Immutability triggers on `public.form_versions` | Absent |
-| RLS policies on `public.forms` and `public.form_versions` | Absent |
-
-These results are direct hosted catalog evidence, stronger than the earlier
-REST schema-cache 404 observations. They do not invalidate the separately
-documented local PostgreSQL tests, but those local tests are not hosted proof.
-
-## Generated types
-
-The CLI successfully returned genuine output for
-`supabase gen types typescript --linked --schema public`. Before writing it,
-the wrapper checked that it included `forms` and `form_versions`. That check
-failed because the hosted schema lacks both tables.
-
-`packages/types/src/database.ts` was therefore left unchanged. No generated
-types were manually approximated and the incomplete hosted schema did not
-overwrite the current application types. This gate remains blocked until the
-committed migrations are applied to the linked development database.
-
-## Hosted tests
-
-Hosted authenticated tenant-isolation, publisher identity, and Draft/Publish
-lifecycle tests were **not run**: their tables/RPC are absent. No synthetic users
-or tenant records were created during this pass. No hosted test pass is claimed.
-
-## Local quality gates
-
-| Gate | Result |
-| --- | --- |
-| `pnpm lint` | Passed, exit 0 |
-| `pnpm typecheck` | Passed, exit 0 |
-| `pnpm test` | Passed: 68 Form Engine tests plus 18 web tests (86 total) |
-| `pnpm build` | Passed, exit 0; Next.js production build completed |
-| `grep -R "@supabase" packages/form-engine/` | No matches; grep exit 1 |
+| Security revocation/replacement | Passed |
+| Hosted migrations and catalog | Passed; missing table grants detected separately |
+| Generated database types | Genuine hosted output written; integration unvalidated |
+| Hosted RLS | Blocked during fixture setup |
+| Hosted lifecycle | Not reached |
+| `pnpm lint` | Not rerun: stopped after hosted failure |
+| `pnpm typecheck` | Not rerun against new types |
+| `pnpm test` | Not rerun against new types |
+| `pnpm build` | Not rerun against new types |
+| `grep -R "@supabase" packages/form-engine/` | No matches; exit 1 |
 | `git diff --check` | Passed |
 
-These gates ran against the existing application types, not migrated hosted types.
-Build-generated changes to the two tracked TypeScript cache files were restored.
-Only verification documentation was committed in this pass; pre-existing
-untracked files remain untracked. No source, migration, or database type file
-was modified.
+Historical evidence remains separate: the preceding application run passed 68
+Form Engine tests and 18 web tests (86 total), lint, typecheck, and build. The
+local PostgreSQL suite previously passed 19 integration tests with substituted
+Auth/Storage scaffolding. Neither result substitutes for this hosted gate or
+validates the newly generated types.
 
-## Remaining blockers
+## Git scope
 
-1. Revoke the identified exposed key and confirm its authentication is rejected;
-   update the local secret variable to an appropriate replacement. Current
-   management access was denied when attempting to create that replacement.
-2. Restore an authorized working PostgreSQL connection for the linked project
-   (the HTTPS management SQL fallback is also restricted to a read-only role),
-   then apply the three committed migrations through the repository CLI workflow.
-   This pass did not change migration history or recreate schema objects manually.
-3. Recheck the hosted catalog, run authenticated hosted RLS and lifecycle tests,
-   regenerate and use the genuine migrated-schema types, and rerun all gates.
-
-Phase 1 must remain unapproved for Phase 2 until these blockers are resolved.
+Only the hosted test runner, genuine generated types, and verification
+documentation belong to this pass. Pre-existing untracked `AGENT_RULES.md`,
+`BACKEND_ARCHITECTURE.md`, `IMPLEMENTATION_ROADMAP.md`, `README (1).md`, and
+`UI screens/` remain preserved and unstaged. A wholly clean worktree cannot be
+claimed while those user files remain untracked. No push or merge was performed.
