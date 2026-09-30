@@ -308,7 +308,7 @@ Decision:
 
 ## ADR-025 — Phase 1 publication and snapshot hardening
 
-**Status:** Implemented for Phase 1 verification; live deployment pending
+**Status:** Implemented and hosted-verified; Phase 1 locked on 2026-09-30
 
 The publish RPC takes only form/version IDs, derives identity from `auth.uid()`,
 uses `SECURITY INVOKER` with an empty search path, and serializes publication on
@@ -328,7 +328,9 @@ Details tab key and column key. Field IDs/keys, including Details columns, are
 globally unique. Existing serialized property names/layout widths are preserved.
 
 PostgreSQL integration coverage is kept distinct from hosted Supabase verification.
-See `PHASE1-VERIFICATION.md` for the executed checks and deployment blockers.
+See `PHASE1-VERIFICATION.md` for historical local evidence and
+`PHASE1-HOSTED-VERIFICATION.md` for the passing hosted gate, explicit least-privilege
+grants, and application quality results. Phase 2 remains a separate review checkpoint.
 
 ---
 

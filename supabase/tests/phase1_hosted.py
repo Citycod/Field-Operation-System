@@ -57,10 +57,11 @@ class HostedGate:
         self.ids = {key: str(uuid4()) for key in ('org_a', 'org_b', 'form_a', 'form_b', 'v1', 'vb', 'v2')}
         self.run = uuid4().hex
         self.passed = 0
+        self.last_operation = 'catalog assertion (management SQL)'
 
     def check(self, condition, name):
         if not condition:
-            raise AssertionError(name)
+            raise AssertionError(name + '; ' + self.last_operation)
         self.passed += 1
         print('PASS:', name, flush=True)
 
@@ -77,17 +78,26 @@ class HostedGate:
                    'Content-Type': 'application/json', 'Prefer': 'return=representation'}
         if user:
             headers['Authorization'] = 'Bearer ' + self.tokens[user]
-        return request(self.base + path, headers, method, body)
+        status, data = request(self.base + path, headers, method, body)
+        code = data.get('code', 'none') if isinstance(data, dict) else 'none'
+        message = data.get('message', '') if isinstance(data, dict) else ''
+        layer = ('RLS' if 'row-level security' in message else
+                 'GRANT' if 'permission denied' in message else
+                 'trigger/RPC/constraint' if code in ('P0001', '23503', '23505') else
+                 'HTTP/API or assertion; inspect operation')
+        role = 'service_role' if admin else 'authenticated/' + user if user else 'anon'
+        self.last_operation = f'{method} {path.split("?")[0]}; HTTP {status}; SQLSTATE/code {code}; role {role}; level {layer}'
+        return status, data
 
     def row(self, table, row_id, user):
         status, rows = self.api(f'/rest/v1/{table}?id=eq.{row_id}&select=*', user)
-        assert status == 200 and len(rows) == 1, f'Expected visible {table} row'
+        assert status == 200 and len(rows) == 1, f'Expected visible {table} row; {self.last_operation}'
         return rows[0]
 
     def write(self, table, body, user=None, row_id=None, admin=False):
         path = '/rest/v1/' + table + (f'?id=eq.{row_id}' if row_id else '')
         status, data = self.api(path, user, 'PATCH' if row_id else 'POST', body, admin)
-        assert status in (200, 201), f'Fixture/write {table}: HTTP {status}, code {data.get("code") if isinstance(data, dict) else "none"}'
+        assert status in (200, 201), f'Fixture/write {table}; {self.last_operation}'
         return data
 
     def catalog(self):
@@ -107,7 +117,20 @@ class HostedGate:
         self.check(rows['safe_rpc'] == 1 and rows['legacy_rpc'] == 0, 'Hosted invoker RPC derives auth.uid; caller-identity overload absent')
         self.check(rows['triggers'] == 2 and rows['policies'] == 7, 'Hosted immutability triggers and seven Form Builder RLS policies')
         versions = {row['version'] for row in self.sql('SELECT version FROM supabase_migrations.schema_migrations')}
-        self.check({'20260922000000', '20260925000000', '20260925010000'} <= versions, 'All three committed migrations recorded remotely')
+        self.check({'20260922000000', '20260925000000', '20260925010000', '20260930000000'} <= versions, 'All four migrations recorded remotely')
+        grants = self.sql("""
+            SELECT grantee,table_name,privilege_type
+            FROM information_schema.role_table_grants
+            WHERE table_schema='public'
+              AND table_name IN ('profiles','organizations','organization_memberships','forms','form_versions')
+              AND grantee IN ('PUBLIC','anon','authenticated','service_role')
+        """)
+        actual = {(r['grantee'], r['table_name'], r['privilege_type']) for r in grants}
+        expected = {('authenticated', table, 'SELECT') for table in ('profiles', 'organizations', 'organization_memberships')}
+        expected |= {('authenticated', 'forms', p) for p in ('SELECT', 'INSERT', 'UPDATE')}
+        expected |= {('authenticated', 'form_versions', p) for p in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')}
+        expected |= {('service_role', table, p) for table in ('organizations', 'organization_memberships', 'form_versions') for p in ('SELECT', 'INSERT')}
+        self.check(actual == expected, 'Exact minimum table grants; no anon/PUBLIC or TRUNCATE/TRIGGER/REFERENCES grants')
 
     def fixtures(self):
         for name in ('a', 'b', 'disabled', 'outsider'):
@@ -153,12 +176,23 @@ class HostedGate:
                 self.check((status == 200 and data == []) or (user is None and status in (401, 403)), f'{user or "unauthenticated"} cannot access protected {table}')
         status, data = self.api('/rest/v1/forms', 'a', 'POST', {'organization_id': self.ids['org_b'],
                                 'key': 'attack', 'title': 'Attack', 'created_by': self.users['a']})
-        self.check(status == 403 and data.get('code') == '42501', 'Org A cannot insert Org B form')
+        self.check(status == 403 and data.get('code') == '42501' and 'row-level security' in data.get('message', ''), 'Org A cannot insert Org B form (RLS)')
+        foreign_version = self.version('b', 'attack', 8)
+        foreign_version['created_by'] = self.users['a']
+        status, data = self.api('/rest/v1/form_versions', 'a', 'POST', foreign_version)
+        self.check(status == 403 and data.get('code') == '42501' and 'row-level security' in data.get('message', ''), 'Org A cannot insert Org B version (RLS)')
         before = self.row('forms', self.ids['form_b'], 'b')
         status, data = self.api('/rest/v1/forms?id=eq.' + self.ids['form_b'], 'a', 'PATCH', {'title': 'Attack'})
         self.check(status == 200 and data == [] and self.row('forms', self.ids['form_b'], 'b') == before,
                    'Org A cannot update Org B form')
         before = self.row('form_versions', self.ids['vb'], 'b')
+        status, data = self.api('/rest/v1/form_versions?id=eq.' + self.ids['vb'], 'a', 'PATCH', {'change_note': 'Attack'})
+        self.check(status == 200 and data == [] and self.row('form_versions', self.ids['vb'], 'b') == before,
+                   'Org A cannot update Org B version')
+        for user in ('disabled', 'outsider'):
+            status, data = self.api('/rest/v1/rpc/publish_form_version', user, 'POST',
+                                   {'p_form_id': self.ids['form_a'], 'p_version_id': self.ids['v1']})
+            self.check(status == 400 and data.get('code') == 'P0001', user + ' cannot publish Org A version')
         for user in ('a', 'disabled', 'outsider'):
             status, data = self.api('/rest/v1/rpc/publish_form_version', user, 'POST',
                                    {'p_form_id': self.ids['form_b'], 'p_version_id': self.ids['vb']})
@@ -205,6 +239,13 @@ class HostedGate:
         self.check(status == 409 and data.get('code') == '23505' and 'one_active_draft_per_form' in data.get('message', ''), 'Second active Draft rejected by partial unique index')
         self.publish('v2')
         self.check(self.row('form_versions', self.ids['v1'], 'a') == original, 'Published V1 remains entirely unchanged after publishing V2')
+        # Direct status updates must not provide an alternate audit-identity path.
+        self.write('form_versions', {'status': 'published', 'published_by': self.users['a'],
+                   'published_at': '2000-01-01T00:00:00Z'}, 'b', self.ids['vb'])
+        published_b = self.row('form_versions', self.ids['vb'], 'b')
+        self.check(published_b['published_by'] == self.users['b'] and
+                   not published_b['published_at'].startswith('2000-01-01'),
+                   'Direct status update cannot spoof publisher or publication time')
 
     def cleanup(self):
         # These UUIDs are generated by this process, never supplied by callers.

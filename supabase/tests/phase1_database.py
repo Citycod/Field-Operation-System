@@ -203,6 +203,7 @@ def main():
             sql("""
                 CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOBYPASSRLS;
                 CREATE ROLE anon NOLOGIN NOSUPERUSER NOBYPASSRLS;
+                CREATE ROLE service_role NOLOGIN NOSUPERUSER BYPASSRLS;
                 CREATE SCHEMA auth; CREATE SCHEMA storage;
                 CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb);
                 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
@@ -210,7 +211,6 @@ def main():
                 CREATE TABLE storage.buckets (id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
                 CREATE TABLE storage.objects (id uuid,bucket_id text,name text,owner uuid);
                 GRANT USAGE ON SCHEMA public,auth TO authenticated,anon;
-                ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO authenticated;
             """)
             for migration in sorted((ROOT / 'supabase/migrations').glob('*.sql')):
                 sql(migration.read_text())

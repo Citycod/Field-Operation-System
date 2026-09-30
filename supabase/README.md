@@ -58,3 +58,24 @@ also move once to `archived`. Publication metadata is set from `auth.uid()` and
 database time, including for direct status updates. Application publish validation
 and authorization remain required; the SQL RPC does not run TypeScript semantic
 validation and must not be presented as a substitute for the application service.
+
+
+## Hosted Phase 1 verification
+
+```bash
+python3 supabase/tests/phase1_hosted.py --project-ref YOUR_DEVELOPMENT_PROJECT_REF
+```
+
+This opt-in runner requires an ignored root `.env`, an existing matching CLI
+project link, administrative Auth credentials, a public API key, and management
+SQL access. It creates isolated test users/tenants and uses authenticated user
+sessions for tenant-isolation and lifecycle assertions. It removes its fixtures
+with scoped administrative cleanup, including immutable test snapshots, and
+never prints credentials. Do not run it against production.
+
+The append-only `20260930000000_phase1_table_privileges.sql` supplies explicit
+minimum table privileges rather than relying on Supabase project defaults.
+It grants no anonymous table access, preserves RLS and RPC security, and removes
+unnecessary TRUNCATE/TRIGGER/REFERENCES privileges. See
+`../docs/form-builder/PHASE1-HOSTED-VERIFICATION.md` for the exact grant matrix,
+executed hosted evidence, and distinction from local/mocked tests.
