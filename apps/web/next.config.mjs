@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@field/ui', '@field/types', '@field/config', '@field/form-engine'],
+  transpilePackages: ['@field/ui', '@field/types', '@field/config', '@field/form-engine', '@field/form-renderer'],
   images: {
     remotePatterns: [
       {

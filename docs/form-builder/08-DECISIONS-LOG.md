@@ -334,6 +334,27 @@ grants, and application quality results. Phase 2 remains a separate review check
 
 ---
 
+## ADR-026 — Reusable React renderer package
+
+**Status:** Implemented in Phase 2
+**Date:** 2026-09-30
+
+The generic schema renderer lives in `packages/form-renderer`, separate from the
+React-free `packages/form-engine` domain package and from Next.js routes. Preview
+and future Runtime screens share this renderer. The package accepts local or
+controlled state and injected lookup options, but owns no authentication,
+persistence, storage, tenant filtering, or backend SDK integration.
+
+The locked Phase 1 schema remains unchanged. Features absent from that contract,
+including configured grid row numbering and line-detail layouts, are not invented
+by the renderer. Notes/Documents remain local UI contracts; rules, calculations,
+submission persistence, and authoritative server validation remain later phases.
+
+See `PHASE2-VERIFICATION.md` for API boundaries, test evidence, visual captures,
+and the documented Phase 2 limits.
+
+---
+
 ## Adding a new decision
 
 Use:

@@ -24,7 +24,8 @@
       "@field/types": ["../../packages/types/src"],
       "@field/ui": ["../../packages/ui/src"],
       "@field/config": ["../../packages/config"],
-      "@field/form-engine": ["../../packages/form-engine/src"]
+      "@field/form-engine": ["../../packages/form-engine/src"],
+      "@field/form-renderer": ["../../packages/form-renderer/src"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
