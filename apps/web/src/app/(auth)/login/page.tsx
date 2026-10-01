@@ -2,11 +2,10 @@
 
 import React, { FormEvent, useState } from "react";
 import { Button, Input } from "@field/ui";
-import { useRouter } from "next/navigation";
 import { SupabaseAuthService } from "@/lib/auth/supabase-auth-service";
+import { safePostLoginPath } from "@/lib/auth/route-policy";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -14,19 +13,33 @@ export default function LoginPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     setError("");
-    const result = await new SupabaseAuthService().signInWithEmail(
-      email,
-      password,
-    );
-    if (result.error || !result.user) {
-      setError(result.error?.message ?? "Authentication failed.");
+    try {
+      const result = await new SupabaseAuthService().signInWithEmail(
+        email,
+        password,
+      );
+      if (result.error || !result.user) {
+        setError(result.error?.message ?? "Authentication failed.");
+        return;
+      }
+
+      const nextPath = safePostLoginPath(
+        new URLSearchParams(window.location.search).get("next"),
+      );
+      window.location.replace(nextPath);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Authentication failed.";
+      setError(
+        message === "Failed to fetch"
+          ? "Unable to reach the authentication service. Check your connection and try again."
+          : message,
+      );
+    } finally {
       setSubmitting(false);
-      return;
     }
-    router.replace("/forms");
-    router.refresh();
   }
 
   return (
@@ -48,6 +61,8 @@ export default function LoginPage() {
           <Input
             label="Work Email"
             type="email"
+            name="email"
+            autoComplete="username"
             placeholder="operator@company.com"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -56,6 +71,8 @@ export default function LoginPage() {
           <Input
             label="Password"
             type="password"
+            name="password"
+            autoComplete="current-password"
             placeholder="••••••••"
             value={password}
             onChange={(event) => setPassword(event.target.value)}

@@ -19,7 +19,8 @@ export class SupabaseMembershipRepository implements MembershipRepository {
       .eq('user_id', userId)
       .eq('status', 'active');
 
-    if (error || !data) return [];
+    if (error) throw new Error('Unable to load organization memberships.');
+    if (!data) return [];
 
     const memberships = data as Array<{
       id: string;

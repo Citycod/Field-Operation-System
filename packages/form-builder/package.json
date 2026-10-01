@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "test:hosted-integration": "playwright test --config=playwright.hosted.config.ts"
+    "test:hosted-integration": "playwright test --config=playwright.hosted.config.ts",
+    "test:auth-hosted": "playwright test --config=playwright.auth.config.ts"
   },
   "dependencies": {
     "@field/form-engine": "workspace:*",

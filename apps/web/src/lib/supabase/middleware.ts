@@ -1,59 +1,70 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { Database } from '@field/types';
+import type { Database } from '@field/types';
+import { isProtectedPage, isPublicPage, safePostLoginPath } from '@/lib/auth/route-policy';
+import { getSupabasePublicConfig } from './config';
+
+function redirectWithCookies(url: URL, source: NextResponse) {
+  const response = NextResponse.redirect(url);
+  source.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
+  return response;
+}
+
+function loginRedirect(request: NextRequest, source: NextResponse) {
+  const url = request.nextUrl.clone();
+  url.pathname = '/login';
+  url.search = '';
+  if (request.nextUrl.pathname !== '/') {
+    url.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  }
+  return redirectWithCookies(url, source);
+}
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+  let supabaseResponse = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+  let config;
+  try {
+    config = getSupabasePublicConfig();
+  } catch {
+    if (isProtectedPage(pathname)) return loginRedirect(request, supabaseResponse);
+    return supabaseResponse;
+  }
 
-  const supabase = createServerClient<Database>(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
+  const supabase = createServerClient<Database>(config.url, config.anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
       },
-    }
-  );
+      setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options),
+        );
+      },
+    },
+  });
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protected route checking
-  const isAuthPage = request.nextUrl.pathname.startsWith('/login');
-  const isPlatformPage =
-    request.nextUrl.pathname.startsWith('/dashboard') ||
-    request.nextUrl.pathname.startsWith('/forms') ||
-    request.nextUrl.pathname.startsWith('/submissions') ||
-    request.nextUrl.pathname.startsWith('/approvals') ||
-    request.nextUrl.pathname.startsWith('/administration');
-
-  if (!user && isPlatformPage && process.env.NEXT_PUBLIC_SUPABASE_URL) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    return NextResponse.redirect(url);
+  if (!user && isProtectedPage(pathname)) {
+    return loginRedirect(request, supabaseResponse);
   }
 
-  if (user && isAuthPage) {
+  if (user && (pathname === '/' || isPublicPage(pathname))) {
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
+    const destination = new URL(
+      safePostLoginPath(request.nextUrl.searchParams.get('next')),
+      request.url,
+    );
+    url.pathname = destination.pathname;
+    url.search = destination.search;
+    url.hash = destination.hash;
+    return redirectWithCookies(url, supabaseResponse);
   }
 
   return supabaseResponse;

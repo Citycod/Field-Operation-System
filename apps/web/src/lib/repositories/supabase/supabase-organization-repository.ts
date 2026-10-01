@@ -35,7 +35,8 @@ export class SupabaseOrganizationRepository implements OrganizationRepository {
       .in('id', ids)
       .eq('status', 'active');
 
-    if (error || !data) return [];
+    if (error) throw new Error('Unable to load organizations.');
+    if (!data) return [];
 
     const orgs = data as Array<{ id: string; name: string; slug: string; status: string; created_at: string; updated_at: string }>;
     return orgs.map((org) => ({

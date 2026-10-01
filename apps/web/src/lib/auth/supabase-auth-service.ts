@@ -10,7 +10,7 @@ export class SupabaseAuthService implements AuthService {
       password,
     });
 
-    if (error || !data.user) {
+    if (error || !data.user || !data.session) {
       return {
         user: null,
         error: error ? new Error(error.message) : new Error('Authentication failed'),
@@ -32,7 +32,8 @@ export class SupabaseAuthService implements AuthService {
 
   async signOut(): Promise<void> {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) throw new Error(error.message);
   }
 
   async getCurrentUser(): Promise<AuthUser | null> {
