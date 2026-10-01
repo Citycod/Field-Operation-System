@@ -35,6 +35,19 @@ class MockMembershipRepository implements MembershipRepository {
 class MockFormRepository implements FormRepository {
   public forms: Map<string, FormEntity> = new Map();
   public versions: Map<string, FormVersionEntity> = new Map();
+  private sequence = 0;
+
+  async listForms(organizationId: string) {
+    return [...this.forms.values()]
+      .filter((form) => form.organization_id === organizationId && !form.archived_at)
+      .map((form) => {
+        const versions = [...this.versions.values()].filter((version) => version.form_id === form.id);
+        const latest = (status: string) => versions
+          .filter((version) => version.status === status)
+          .reduce<number | null>((max, version) => max === null || version.version_number > max ? version.version_number : max, null);
+        return { ...form, draft_version_number: latest('draft'), published_version_number: latest('published') };
+      });
+  }
 
   async createForm(params: {
     organizationId: string;
@@ -44,8 +57,9 @@ class MockFormRepository implements FormRepository {
     createdBy: string;
     initialSchema: any;
   }) {
-    const formId = `form_${Date.now()}`;
-    const versionId = `ver_${Date.now()}`;
+    this.sequence += 1;
+    const formId = `form_${this.sequence}`;
+    const versionId = `ver_${this.sequence}`;
 
     const version: FormVersionEntity = {
       id: versionId,
@@ -232,6 +246,52 @@ describe('FormService', () => {
         title: 'Purchase Requisition',
       })
     ).rejects.toThrow(/Unauthorized/);
+  });
+
+  it('lists only forms in the authorized active tenant', async () => {
+    await formService.createForm({ userId: userA, organizationId: orgA, key: 'org_a_form', title: 'Org A form' });
+    await formService.createForm({ userId: userB, organizationId: orgB, key: 'org_b_form', title: 'Org B form' });
+
+    const forms = await formService.listForms({ userId: userA, organizationId: orgA });
+    expect(forms).toHaveLength(1);
+    expect(forms[0]).toMatchObject({ organization_id: orgA, key: 'org_a_form', draft_version_number: 1 });
+    await expect(formService.listForms({ userId: userA, organizationId: orgB })).rejects.toThrow('Unauthorized');
+  });
+
+  it('loads and saves the authorized editable draft through the service boundary', async () => {
+    const created = await formService.createForm({
+      userId: userA,
+      organizationId: orgA,
+      key: 'builder_draft',
+      title: 'Builder draft',
+    });
+    const schema = structuredClone(created.version.schema_jsonb);
+    schema.header.sections.push({
+      id: 'section_main',
+      key: 'main',
+      title: 'Main information',
+      order: 0,
+      width: 'full',
+      fields: [],
+    });
+
+    await formService.saveDraft({
+      userId: userA,
+      organizationId: orgA,
+      formId: created.form.id,
+      versionId: created.version.id,
+      schema,
+    });
+    const reloaded = await formService.getEditableDraft({
+      userId: userA,
+      organizationId: orgA,
+      formId: created.form.id,
+    });
+
+    expect(reloaded?.draft?.schema_jsonb.header.sections[0]?.title).toBe('Main information');
+    await expect(
+      formService.getEditableDraft({ userId: userA, organizationId: orgB, formId: created.form.id }),
+    ).rejects.toThrow('Unauthorized');
   });
 
   it('handles full lifecycle: Create Form -> Draft V1 -> Publish -> Edit -> Draft V2 -> Publish', async () => {

@@ -333,6 +333,22 @@ describe("visual builder", () => {
       form: { id: "form_test" },
     });
   });
+
+  it("reports persistence failures instead of showing a false save success", async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValue(new Error("Hosted draft write failed"));
+    render(<FormBuilder initialSchema={blank()} onSave={save} />);
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }));
+    await vi.waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "Save failed: Hosted draft write failed",
+      ),
+    );
+    expect(screen.getByRole("status").textContent).not.toContain(
+      "Draft save completed",
+    );
+  });
 });
 
 it("contains no business-specific labels or direct Supabase imports in builder core", () => {

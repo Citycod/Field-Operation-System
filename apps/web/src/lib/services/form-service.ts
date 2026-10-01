@@ -15,6 +15,19 @@ export class FormService {
     }
   }
 
+  async listForms(params: { userId: string; organizationId: string }) {
+    await this.checkMembership(params.userId, params.organizationId);
+    return this.formRepository.listForms(params.organizationId);
+  }
+
+  async getEditableDraft(params: { userId: string; organizationId: string; formId: string }) {
+    await this.checkMembership(params.userId, params.organizationId);
+    const form = await this.formRepository.getFormById(params.formId, params.organizationId);
+    if (!form) return null;
+    const draft = await this.formRepository.getDraftVersion(params.formId, params.organizationId);
+    return { form, draft };
+  }
+
   async createForm(params: {
     userId: string;
     organizationId: string;

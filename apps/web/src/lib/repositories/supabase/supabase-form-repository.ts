@@ -1,8 +1,43 @@
-import { FormRepository, FormEntity, FormVersionEntity } from '../form-repository';
+import { FormRepository, FormEntity, FormVersionEntity, FormListItem } from '../form-repository';
 import { FormSchemaV1 } from '@field/form-engine';
+import type { Database, Json } from '@field/types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 
 export class SupabaseFormRepository implements FormRepository {
+  constructor(private readonly injectedClient?: SupabaseClient<Database>) {}
+
+  private client(): SupabaseClient<Database> {
+    return this.injectedClient ?? createClient();
+  }
+
+  async listForms(organizationId: string): Promise<FormListItem[]> {
+    const supabase = this.client();
+    const { data: forms, error } = await supabase
+      .from('forms')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .is('archived_at', null)
+      .order('updated_at', { ascending: false });
+    if (error) throw new Error(`Failed to load forms: ${error.message}`);
+    if (!forms?.length) return [];
+
+    const { data: versions, error: versionError } = await supabase
+      .from('form_versions')
+      .select('form_id,version_number,status')
+      .eq('organization_id', organizationId)
+      .in('form_id', forms.map((form) => form.id));
+    if (versionError) throw new Error(`Failed to load form lifecycle: ${versionError.message}`);
+
+    return forms.map((form) => {
+      const related = (versions ?? []).filter((version) => version.form_id === form.id);
+      const latest = (status: string) => related
+        .filter((version) => version.status === status)
+        .reduce<number | null>((max, version) => max === null || version.version_number > max ? version.version_number : max, null);
+      return { ...form, draft_version_number: latest('draft'), published_version_number: latest('published') };
+    });
+  }
+
   async createForm(params: {
     organizationId: string;
     key: string;
@@ -11,7 +46,7 @@ export class SupabaseFormRepository implements FormRepository {
     createdBy: string;
     initialSchema: FormSchemaV1;
   }): Promise<{ form: FormEntity; version: FormVersionEntity }> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
 
     // Insert into forms first
     const { data: form, error: formError } = await supabase
@@ -31,6 +66,11 @@ export class SupabaseFormRepository implements FormRepository {
       throw new Error(`Failed to create form: ${formError?.message}`);
     }
 
+    const initialSchema: FormSchemaV1 = {
+      ...params.initialSchema,
+      form: { ...params.initialSchema.form, id: form.id },
+    };
+
     // Insert draft v1
     const { data: version, error: versionError } = await supabase
       .from('form_versions')
@@ -39,8 +79,8 @@ export class SupabaseFormRepository implements FormRepository {
         form_id: form.id,
         version_number: 1,
         status: 'draft',
-        schema_version: params.initialSchema.schemaVersion,
-        schema_jsonb: params.initialSchema,
+        schema_version: initialSchema.schemaVersion,
+        schema_jsonb: initialSchema as unknown as Json,
         created_by: params.createdBy,
       })
       .select()
@@ -64,12 +104,12 @@ export class SupabaseFormRepository implements FormRepository {
 
     return {
       form: updatedForm as FormEntity,
-      version: version as FormVersionEntity,
+      version: version as unknown as FormVersionEntity,
     };
   }
 
   async getFormById(id: string, organizationId: string): Promise<FormEntity | null> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('forms')
       .select('*')
@@ -82,7 +122,7 @@ export class SupabaseFormRepository implements FormRepository {
   }
 
   async getFormByKey(key: string, organizationId: string): Promise<FormEntity | null> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('forms')
       .select('*')
@@ -95,7 +135,7 @@ export class SupabaseFormRepository implements FormRepository {
   }
 
   async getDraftVersion(formId: string, organizationId: string): Promise<FormVersionEntity | null> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('form_versions')
       .select('*')
@@ -105,11 +145,11 @@ export class SupabaseFormRepository implements FormRepository {
       .single();
 
     if (error || !data) return null;
-    return data as FormVersionEntity;
+    return data as unknown as FormVersionEntity;
   }
 
   async getPublishedVersion(formId: string, organizationId: string): Promise<FormVersionEntity | null> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('form_versions')
       .select('*')
@@ -121,7 +161,7 @@ export class SupabaseFormRepository implements FormRepository {
       .single();
 
     if (error || !data) return null;
-    return data as FormVersionEntity;
+    return data as unknown as FormVersionEntity;
   }
 
   async saveDraft(params: {
@@ -131,11 +171,11 @@ export class SupabaseFormRepository implements FormRepository {
     schema: FormSchemaV1;
     changeNote?: string;
   }): Promise<FormVersionEntity> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('form_versions')
       .update({
-        schema_jsonb: params.schema,
+        schema_jsonb: params.schema as unknown as Json,
         change_note: params.changeNote || null,
       })
       .eq('id', params.versionId)
@@ -149,7 +189,7 @@ export class SupabaseFormRepository implements FormRepository {
       throw new Error(`Failed to save draft schema: ${error?.message || 'Version not found or not a draft'}`);
     }
 
-    return data as FormVersionEntity;
+    return data as unknown as FormVersionEntity;
   }
 
   async publishVersion(params: {
@@ -158,7 +198,7 @@ export class SupabaseFormRepository implements FormRepository {
     organizationId: string;
     userId: string;
   }): Promise<void> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
     
     // Call atomic RPC — published_by is derived from auth.uid() inside the
     // DB function, not from the caller-supplied userId. The userId param is
@@ -178,7 +218,7 @@ export class SupabaseFormRepository implements FormRepository {
     organizationId: string;
     userId: string;
   }): Promise<FormVersionEntity> {
-    const supabase = createClient() as any;
+    const supabase = this.client();
 
     // Check if there is already an active draft
     const existingDraft = await this.getDraftVersion(params.formId, params.organizationId);
@@ -216,7 +256,7 @@ export class SupabaseFormRepository implements FormRepository {
         version_number: nextVersionNumber,
         status: 'draft',
         schema_version: published.schema_version,
-        schema_jsonb: published.schema_jsonb,
+        schema_jsonb: published.schema_jsonb as unknown as Json,
         created_by: params.userId,
       })
       .select()
@@ -237,6 +277,6 @@ export class SupabaseFormRepository implements FormRepository {
       throw new Error(`Failed to link draft version to form: ${updateFormError.message}`);
     }
 
-    return newDraft as FormVersionEntity;
+    return newDraft as unknown as FormVersionEntity;
   }
 }

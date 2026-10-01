@@ -4,27 +4,8 @@ import React from 'react';
 import { useAuth } from '@/lib/auth/auth-context';
 import { Building2, ChevronDown } from 'lucide-react';
 
-const AVAILABLE_ORGS = [
-  {
-    id: 'org_nig_og',
-    name: 'West African Offshore Services Ltd',
-    slug: 'wa-offshore',
-    status: 'active' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'org_uk_rental',
-    name: 'Caledonian Heavy Equipment Rentals',
-    slug: 'caledonian-rentals',
-    status: 'active' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
 export function TenantSwitcher() {
-  const { activeOrganization, setActiveOrganization } = useAuth();
+  const { activeOrganization, organizations, setActiveOrganization } = useAuth();
   const [isOpen, setIsOpen] = React.useState(false);
 
   return (
@@ -45,7 +26,7 @@ export function TenantSwitcher() {
           <div className="px-3 py-1 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
             Organizations (Tenants)
           </div>
-          {AVAILABLE_ORGS.map((org) => (
+          {organizations.map((org) => (
             <button
               key={org.id}
               onClick={() => {
@@ -64,6 +45,9 @@ export function TenantSwitcher() {
               )}
             </button>
           ))}
+          {organizations.length === 0 && (
+            <p className="px-3 py-2 text-xs text-slate-400">No active organization memberships.</p>
+          )}
         </div>
       )}
     </div>

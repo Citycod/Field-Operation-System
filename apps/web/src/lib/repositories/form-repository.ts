@@ -30,7 +30,14 @@ export interface FormVersionEntity {
   published_at: string | null;
 }
 
+export interface FormListItem extends FormEntity {
+  draft_version_number: number | null;
+  published_version_number: number | null;
+}
+
 export interface FormRepository {
+  listForms(organizationId: string): Promise<FormListItem[]>;
+
   createForm(params: {
     organizationId: string;
     key: string;

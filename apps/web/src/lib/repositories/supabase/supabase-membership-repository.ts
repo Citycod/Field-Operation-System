@@ -1,10 +1,18 @@
 import { MembershipRepository } from '../membership-repository';
 import { OrganizationMembership, PlatformRole } from '@field/types';
 import { createClient } from '@/lib/supabase/client';
+import type { Database } from '@field/types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export class SupabaseMembershipRepository implements MembershipRepository {
+  constructor(private readonly injectedClient?: SupabaseClient<Database>) {}
+
+  private client(): SupabaseClient<Database> {
+    return this.injectedClient ?? createClient();
+  }
+
   async findByUserId(userId: string): Promise<OrganizationMembership[]> {
-    const supabase = createClient();
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('organization_memberships')
       .select('*')
@@ -35,7 +43,7 @@ export class SupabaseMembershipRepository implements MembershipRepository {
   }
 
   async findUserMembershipInOrg(userId: string, organizationId: string): Promise<OrganizationMembership | null> {
-    const supabase = createClient();
+    const supabase = this.client();
     const { data, error } = await supabase
       .from('organization_memberships')
       .select('*')

@@ -11,6 +11,7 @@ import { SupabaseMembershipRepository } from '@/lib/repositories/supabase/supaba
 import { createClient } from '@/lib/supabase/client';
 
 interface AuthContextType extends AuthState {
+  organizations: Organization[];
   setActiveOrganization: (org: Organization) => void;
   logout: () => Promise<void>;
 }
@@ -74,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeOrganization, setActiveOrg] = useState<Organization | null>(null);
   const [memberships, setMemberships] = useState<OrganizationMembership[]>([]);
-  const [, setOrganizations] = useState<Organization[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -109,10 +110,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setActiveOrg(null);
         }
       } catch {
-        setUser(MOCK_USER);
-        setMemberships(MOCK_MEMBERSHIPS);
-        setOrganizations(MOCK_ORGS);
-        setActiveOrg(MOCK_ORGS[0]);
+        setUser(null);
+        setMemberships([]);
+        setOrganizations([]);
+        setActiveOrg(null);
       } finally {
         setIsLoading(false);
       }
@@ -125,7 +126,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
       const supabase = createClient();
       const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-        loadAuth();
+        // Supabase invokes this callback while its auth lock is held. Defer
+        // follow-up auth/database calls so sign-in and token refresh can finish.
+        window.setTimeout(() => void loadAuth(), 0);
       });
       unsubscribeFn = () => subscription.unsubscribe();
     }
@@ -157,6 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         activeOrganization,
         memberships,
+        organizations,
         currentRole,
         isAuthenticated: !!user,
         isLoading,

@@ -17,9 +17,15 @@ export class SupabaseAuthService implements AuthService {
       };
     }
 
-    const user = await this.getCurrentUser();
     return {
-      user,
+      user: {
+        id: data.user.id,
+        email: data.user.email || '',
+        first_name: (data.user.user_metadata?.first_name as string) || '',
+        last_name: (data.user.user_metadata?.last_name as string) || '',
+        avatar_url: (data.user.user_metadata?.avatar_url as string) || undefined,
+        status: 'active',
+      },
       error: null,
     };
   }
