@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   validateDraftSchema,
   type DetailsColumnDefinition,
@@ -137,6 +137,44 @@ export function FormBuilder({
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const idFactory = useRef(createId);
+  const overlayTrigger = useRef<HTMLElement | null>(null);
+  const previewClose = useRef<HTMLButtonElement>(null);
+
+  const rememberOverlayTrigger = () => {
+    overlayTrigger.current = document.activeElement as HTMLElement | null;
+  };
+  const restoreOverlayTrigger = () => {
+    requestAnimationFrame(() => overlayTrigger.current?.focus());
+  };
+  const openAddTab = () => {
+    rememberOverlayTrigger();
+    setAddTabOpen(true);
+  };
+  const closeAddTab = () => {
+    setAddTabOpen(false);
+    restoreOverlayTrigger();
+  };
+  const closePreview = () => {
+    setPreviewOpen(false);
+    restoreOverlayTrigger();
+  };
+
+  useEffect(() => {
+    if (!addTabOpen && !previewOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    if (previewOpen) previewClose.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (previewOpen) closePreview();
+      else closeAddTab();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [addTabOpen, previewOpen]);
 
   const activeTab =
     schema.tabs.find((tab) => tab.id === activeTabId) ?? schema.tabs[0];
@@ -501,7 +539,7 @@ export function FormBuilder({
     setActiveTabId(id);
     setSelection({ kind: "tab", tabId: id });
     setTabDraft({ title: "", type: "form" });
-    setAddTabOpen(false);
+    closeAddTab();
   };
 
   const removeTab = (id: string) => {
@@ -538,6 +576,7 @@ export function FormBuilder({
 
   const openPreview = () => {
     if (validateFor("preview")) {
+      rememberOverlayTrigger();
       setPreviewOpen(true);
       setNotice("Preview is using the current local draft schema.");
     }
@@ -628,6 +667,19 @@ export function FormBuilder({
         </div>
       )}
 
+      <section className="fb-mobile-state" aria-label="Mobile builder guidance">
+        <strong>
+          Form Builder is optimized for desktop or tablet authoring.
+        </strong>
+        <p>
+          Use Preview to inspect the current draft on this phone, or continue
+          editing from a larger screen.
+        </p>
+        <button type="button" onClick={openPreview}>
+          ▷ Preview current draft
+        </button>
+      </section>
+
       <div className="fb-workspace">
         <aside className="fb-palette" aria-label="Component palette">
           <div className="fb-panel-heading">
@@ -659,7 +711,7 @@ export function FormBuilder({
             >
               ＋ Form section
             </button>
-            <button type="button" onClick={() => setAddTabOpen(true)}>
+            <button type="button" onClick={openAddTab}>
               ＋ Tab
             </button>
           </div>
@@ -675,7 +727,7 @@ export function FormBuilder({
               <h2>Form layout</h2>
               <p>Build the header and configured tabs.</p>
             </div>
-            <button type="button" onClick={() => setAddTabOpen(true)}>
+            <button type="button" onClick={openAddTab}>
               ＋ Add Tab
             </button>
           </div>
@@ -769,7 +821,7 @@ export function FormBuilder({
               type="button"
               className="fb-add-tab"
               aria-label="Add tab"
-              onClick={() => setAddTabOpen(true)}
+              onClick={openAddTab}
             >
               ＋
             </button>
@@ -871,7 +923,7 @@ export function FormBuilder({
         <div
           className="fb-dialog-backdrop"
           role="presentation"
-          onMouseDown={() => setAddTabOpen(false)}
+          onMouseDown={closeAddTab}
         >
           <div
             className="fb-dialog"
@@ -884,7 +936,7 @@ export function FormBuilder({
               className="fb-dialog-close"
               type="button"
               aria-label="Close add tab"
-              onClick={() => setAddTabOpen(false)}
+              onClick={closeAddTab}
             >
               ×
             </button>
@@ -925,7 +977,7 @@ export function FormBuilder({
               </div>
             </fieldset>
             <div className="fb-dialog-actions">
-              <button type="button" onClick={() => setAddTabOpen(false)}>
+              <button type="button" onClick={closeAddTab}>
                 Cancel
               </button>
               <button
@@ -953,7 +1005,7 @@ export function FormBuilder({
               <strong>Preview</strong>
               <span>Current local draft · Phase 2 renderer</span>
             </div>
-            <button type="button" onClick={() => setPreviewOpen(false)}>
+            <button ref={previewClose} type="button" onClick={closePreview}>
               Close
             </button>
           </header>

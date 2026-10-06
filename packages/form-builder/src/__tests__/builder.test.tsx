@@ -119,6 +119,20 @@ describe("schema factories", () => {
 });
 
 describe("visual builder", () => {
+  it("exposes an intentional mobile guidance state with renderer Preview access", () => {
+    render(<FormBuilder initialSchema={blank()} />);
+    const guidance = screen.getByLabelText("Mobile builder guidance");
+    expect(guidance.textContent).toContain(
+      "Form Builder is optimized for desktop or tablet authoring.",
+    );
+    fireEvent.click(
+      within(guidance).getByRole("button", {
+        name: "▷ Preview current draft",
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Form preview" })).toBeTruthy();
+  });
+
   it("creates a header section, adds fields, and edits field properties", () => {
     const change = vi.fn();
     render(

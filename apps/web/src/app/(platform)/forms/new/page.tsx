@@ -39,13 +39,13 @@ export default function CreateFormPage() {
         <Link href="/forms">Forms</Link> / Create form
       </nav>
       <div className="border border-slate-200 bg-white">
-        <header className="border-b border-slate-200 px-6 py-5">
+        <header className="border-b border-slate-200 px-4 py-5 sm:px-6">
           <h1 className="text-xl font-bold">Create New Form</h1>
           <p className="mt-1 text-xs text-slate-500">
             Create a blank draft before opening the visual builder.
           </p>
         </header>
-        <form onSubmit={submit} className="space-y-5 p-6">
+        <form onSubmit={submit} className="space-y-5 p-4 sm:p-6">
           <label className="block text-xs font-semibold">
             Form title *
             <input
@@ -78,16 +78,16 @@ export default function CreateFormPage() {
               {error}
             </p>
           )}
-          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
             <Link
               href="/forms"
-              className="rounded border border-slate-300 px-4 py-2 text-xs font-semibold"
+              className="inline-flex min-h-10 items-center justify-center rounded border border-slate-300 px-4 py-2 text-xs font-semibold"
             >
               Cancel
             </Link>
             <button
               disabled={creating || !activeOrganization}
-              className="rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              className="min-h-10 rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
             >
               {creating ? "Creating…" : "Create and Open Builder"}
             </button>

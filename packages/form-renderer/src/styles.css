@@ -273,6 +273,8 @@
   flex: 1;
 }
 .fr-table-scroll {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
   overflow-x: auto;
   width: 100%;
 }
@@ -404,13 +406,42 @@
     padding: 12px;
   }
   .fr-actions {
+    align-items: stretch;
+    flex-direction: column;
     padding: 12px;
-    flex-wrap: wrap;
   }
   .fr-actions button {
+    min-height: 42px;
+    width: 100%;
+  }
+  .fr-section-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .fr-section-heading > span:not(.fr-section-mark) {
+    margin-left: 0;
+    width: 100%;
+  }
+  .fr-section-heading > button {
     margin-left: auto;
+    min-height: 40px;
   }
   .fr-note-meta {
     flex-wrap: wrap;
+  }
+  .fr-note-composer button {
+    justify-self: stretch;
+    min-height: 42px;
+  }
+  .fr-file {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .fr-file button {
+    min-height: 40px;
+    width: 100%;
+  }
+  .fr-upload {
+    padding: 14px;
   }
 }

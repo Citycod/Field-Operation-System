@@ -92,3 +92,39 @@ test("authors a blank form with header, grid, notes, documents, save and rendere
   });
   expect(errors).toEqual([]);
 });
+
+test("keeps tablet authoring controls inside their panels", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/dev/form-builder");
+  const palette = page.getByLabel("Component palette");
+  await expect(palette).toBeVisible();
+  const paletteBox = await palette.boundingBox();
+  expect(paletteBox).not.toBeNull();
+  for (const control of await palette.getByRole("button").all()) {
+    const controlBox = await control.boundingBox();
+    if (!controlBox) continue;
+    expect(controlBox.x).toBeGreaterThanOrEqual(paletteBox!.x);
+    expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(
+      paletteBox!.x + paletteBox!.width + 1,
+    );
+  }
+  await page.getByLabel("Properties panel").scrollIntoViewIfNeeded();
+  await expect(page.getByLabel("Properties panel")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    ),
+  ).toBe(true);
+  mkdirSync(path.resolve(__dirname, "../../../docs/qa/responsive"), {
+    recursive: true,
+  });
+  await page.screenshot({
+    path: path.resolve(
+      __dirname,
+      "../../../docs/qa/responsive/builder-tablet-core.png",
+    ),
+    fullPage: true,
+  });
+});

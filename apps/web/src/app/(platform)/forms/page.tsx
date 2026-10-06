@@ -50,8 +50,8 @@ export default function FormLibraryPage() {
   );
   return (
     <div className="mx-auto max-w-7xl space-y-4">
-      <header className="flex items-center justify-between border-b border-slate-200 pb-4">
-        <div>
+      <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-emerald-700" />
             <h1 className="text-xl font-bold">Form Library</h1>
@@ -63,7 +63,7 @@ export default function FormLibraryPage() {
         </div>
         <Link
           href="/forms/new"
-          className="inline-flex h-9 items-center gap-2 rounded bg-emerald-700 px-4 text-xs font-semibold text-white"
+          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded bg-emerald-700 px-4 text-xs font-semibold text-white sm:h-9 sm:w-auto"
         >
           <Plus className="h-4 w-4" />
           Create Form
@@ -103,7 +103,7 @@ export default function FormLibraryPage() {
       )}
       {state === "ready" && forms.length > 0 && (
         <>
-          <label className="relative block max-w-sm">
+          <label className="relative block w-full max-w-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <span className="sr-only">Search forms</span>
             <input
@@ -114,7 +114,12 @@ export default function FormLibraryPage() {
               placeholder="Search forms"
             />
           </label>
-          <div className="overflow-hidden border border-slate-200 bg-white">
+          <div
+            className="hidden overflow-x-auto border border-slate-200 bg-white md:block"
+            tabIndex={0}
+            role="region"
+            aria-label="Forms table"
+          >
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
@@ -170,6 +175,62 @@ export default function FormLibraryPage() {
             </table>
             {!visible.length && (
               <p className="p-8 text-center text-sm text-slate-500">
+                No forms match your search.
+              </p>
+            )}
+          </div>
+          <div className="space-y-3 md:hidden">
+            {visible.map((form) => (
+              <article
+                key={form.id}
+                className="border border-slate-200 bg-white p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="break-words text-sm font-semibold">
+                      {form.title}
+                    </h2>
+                    <p className="mt-1 break-words text-xs text-slate-500">
+                      {form.description || form.key}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded px-2 py-1 text-[11px] font-semibold ${form.draft_version_number ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}
+                  >
+                    {form.draft_version_number
+                      ? "Draft"
+                      : form.published_version_number
+                        ? "Published"
+                        : form.status}
+                  </span>
+                </div>
+                <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-slate-100 py-3 text-xs">
+                  <div>
+                    <dt className="text-slate-500">Latest version</dt>
+                    <dd className="mt-1 font-semibold">
+                      {Math.max(
+                        form.draft_version_number ?? 0,
+                        form.published_version_number ?? 0,
+                      ) || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Updated</dt>
+                    <dd className="mt-1 font-semibold">
+                      {new Date(form.updated_at).toLocaleDateString()}
+                    </dd>
+                  </div>
+                </dl>
+                <Link
+                  className="mt-3 inline-flex min-h-10 w-full items-center justify-center rounded border border-emerald-700 font-semibold text-emerald-700"
+                  href={`/forms/${form.id}/builder`}
+                >
+                  {form.draft_version_number ? "Open builder" : "View form"}
+                </Link>
+              </article>
+            ))}
+            {!visible.length && (
+              <p className="border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
                 No forms match your search.
               </p>
             )}
