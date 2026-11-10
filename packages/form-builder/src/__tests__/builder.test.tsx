@@ -160,6 +160,38 @@ describe("visual builder", () => {
     });
   });
 
+  it("allows adding multiple fields consecutively into the active section and derives semantic keys from labels", () => {
+    const change = vi.fn();
+    render(
+      <FormBuilder
+        initialSchema={blank()}
+        onChange={change}
+        createId={ids()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "＋ Form section" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Text field" }));
+    fireEvent.change(screen.getByLabelText("Field label"), {
+      target: { value: "Contact Email" },
+    });
+    // Add a second field immediately while the first field is still selected
+    fireEvent.click(screen.getByRole("button", { name: "Add Text field" }));
+    fireEvent.change(screen.getByLabelText("Field label"), {
+      target: { value: "Phone Number" },
+    });
+    const schema = change.mock.lastCall?.[0] as FormSchemaV1;
+    const generalTab = schema.tabs[0] as Extract<FormTabUnion, { type: "form" }>;
+    expect(generalTab.sections[0].fields).toHaveLength(2);
+    expect(generalTab.sections[0].fields[0]).toMatchObject({
+      label: "Contact Email",
+      key: "contact_email",
+    });
+    expect(generalTab.sections[0].fields[1]).toMatchObject({
+      label: "Phone Number",
+      key: "phone_number",
+    });
+  });
+
   it("adds, reorders, and removes fields without changing surviving IDs", () => {
     const schema = blank();
     schema.header.sections = [
@@ -361,6 +393,60 @@ describe("visual builder", () => {
     );
     expect(screen.getByRole("status").textContent).not.toContain(
       "Draft save completed",
+    );
+  });
+
+  it("binds a Lookup field to a tenant data source and resolves options in Preview", async () => {
+    const change = vi.fn();
+    const provider = vi
+      .fn()
+      .mockResolvedValue([{ label: "Head Office", value: "head_office" }]);
+    render(
+      <FormBuilder
+        initialSchema={blank()}
+        onChange={change}
+        createId={ids()}
+        dataSources={[
+          {
+            id: "ds_sites",
+            key: "site_locations",
+            name: "Site Locations",
+            status: "active",
+            displayFieldKey: "name",
+            valueFieldKey: "code",
+            fields: [
+              { key: "code", label: "Site Code" },
+              { key: "name", label: "Site Name" },
+            ],
+          },
+        ]}
+        lookupProvider={provider}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "＋ Header section" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Lookup field" }));
+    fireEvent.change(screen.getByLabelText("Lookup data source"), {
+      target: { value: "site_locations" },
+    });
+    const schema = change.mock.lastCall?.[0] as FormSchemaV1;
+    expect(schema.header.sections[0].fields[0]).toMatchObject({
+      type: "lookup",
+      lookupConfig: {
+        targetEntity: "site_locations",
+        displayField: "name",
+        valueField: "code",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "▷ Preview" }));
+    const preview = screen.getByRole("dialog", { name: "Form preview" });
+    await within(preview).findByRole("option", { name: "Head Office" });
+    expect(provider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetEntity: "site_locations",
+        displayField: "name",
+        valueField: "code",
+      }),
+      expect.any(Object),
     );
   });
 });

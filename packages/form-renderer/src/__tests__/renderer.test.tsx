@@ -287,6 +287,29 @@ it("lookup provider supports loading, failure, retry and selecting local options
     "a",
   );
 });
+it("rejects lookup values not present in resolved lookup options during validation", async () => {
+  const s = fixture();
+  const v = initialValue(s);
+  v.fields.lookup_field = "invalid_option";
+  const provider = vi
+    .fn()
+    .mockResolvedValue([{ label: "Team A", value: "a" }]);
+  const submit = vi.fn();
+  render(
+    <FormRenderer
+      schema={s}
+      initialValue={v}
+      lookupProvider={provider}
+      onSubmit={submit}
+    />,
+  );
+  await screen.findByRole("option", { name: "Team A" });
+  fireEvent.click(screen.getByRole("button", { name: "Validate form" }));
+  expect(screen.getByRole("alert").textContent).toContain(
+    "Lookup: Choose an available option.",
+  );
+  expect(submit).not.toHaveBeenCalled();
+});
 it("notes append without overwriting and honor the local author contract", () => {
   const change = vi.fn();
   render(

@@ -7,13 +7,14 @@ import type { FormListItem } from "@/lib/repositories/form-repository";
 
 export default function FormLibraryPage() {
   const { activeOrganization, isLoading: authLoading } = useAuth();
+  const activeOrganizationId = activeOrganization?.id ?? null;
   const [forms, setForms] = useState<FormListItem[]>([]);
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   useEffect(() => {
     if (authLoading) return;
-    if (!activeOrganization) {
+    if (!activeOrganizationId) {
       setError("Select an organization where you can manage forms.");
       setState("error");
       return;
@@ -21,7 +22,7 @@ export default function FormLibraryPage() {
     const controller = new AbortController();
     setState("loading");
     fetch(
-      `/api/forms?organizationId=${encodeURIComponent(activeOrganization.id)}`,
+      `/api/forms?organizationId=${encodeURIComponent(activeOrganizationId)}`,
       { signal: controller.signal },
     )
       .then(async (response) => {
@@ -38,7 +39,7 @@ export default function FormLibraryPage() {
         }
       });
     return () => controller.abort();
-  }, [activeOrganization, authLoading]);
+  }, [activeOrganizationId, authLoading]);
   const visible = useMemo(
     () =>
       forms.filter((form) =>

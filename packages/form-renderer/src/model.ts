@@ -4,6 +4,7 @@ import {
   type FieldDefinition,
   type DetailsColumnDefinition,
   type DetailsTabDefinition,
+  type OptionItem,
 } from "@field/form-engine";
 import type {
   RendererValue,
@@ -157,6 +158,7 @@ export function columnField(column: DetailsColumnDefinition): FieldDefinition {
 export function validateValue(
   schema: FormSchemaV1,
   value: RendererValue,
+  lookupOptionsByFieldId?: Readonly<Record<string, readonly OptionItem[]>>,
 ): ValueError[] {
   const errors: ValueError[] = [];
   function field(
@@ -203,6 +205,13 @@ export function validateValue(
         }
       }
       if (f.type === "dropdown" && !f.options.some((o) => o.value === v))
+        message = "Choose an available option.";
+      if (
+        f.type === "lookup" &&
+        lookupOptionsByFieldId &&
+        Object.hasOwn(lookupOptionsByFieldId, f.id) &&
+        !lookupOptionsByFieldId[f.id].some((o) => o.value === String(v))
+      )
         message = "Choose an available option.";
       if (f.type === "checkbox" && typeof v !== "boolean")
         message = "Choose a checkbox value.";

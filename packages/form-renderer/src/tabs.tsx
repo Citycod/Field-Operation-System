@@ -5,6 +5,7 @@ import type {
   DetailsTabDefinition,
   NotesTabDefinition,
   DocumentsTabDefinition,
+  OptionItem,
 } from "@field/form-engine";
 import type {
   RendererMode,
@@ -29,6 +30,10 @@ interface TabProps {
   errors: ValueError[];
   prefix: string;
   lookupProvider?: LookupProvider;
+  onLookupOptionsLoaded?: (
+    fieldId: string,
+    options: readonly OptionItem[],
+  ) => void;
 }
 export function DetailsTab({
   tab,
@@ -101,6 +106,7 @@ export function DetailsTab({
                         value={row.values[col.key]}
                         disabled={readonly || c.allowEdit !== true}
                         lookupProvider={p.lookupProvider}
+                        onLookupOptionsLoaded={p.onLookupOptionsLoaded}
                         error={
                           p.errors.find(
                             (e) =>

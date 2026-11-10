@@ -132,7 +132,7 @@
 }
 .fb-workspace {
   display: grid;
-  grid-template-columns: 230px minmax(520px, 1fr) 320px;
+  grid-template-columns: 200px minmax(360px, 1fr) 280px;
   min-height: 690px;
 }
 .fb-palette,
@@ -701,7 +701,7 @@
   width: 100%;
 }
 
-@media (min-width: 640px) and (max-width: 1023px) {
+@media (min-width: 640px) and (max-width: 1200px) {
   .fb-workspace {
     grid-template-columns: 180px minmax(0, 1fr);
   }

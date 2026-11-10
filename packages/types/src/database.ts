@@ -14,6 +14,144 @@ export type Database = {
   }
   public: {
     Tables: {
+      data_source_fields: {
+        Row: {
+          config_jsonb: Json
+          created_at: string
+          data_source_id: string
+          field_type: string
+          id: string
+          key: string
+          label: string
+          order_index: number
+          organization_id: string
+          required: boolean
+        }
+        Insert: {
+          config_jsonb?: Json
+          created_at?: string
+          data_source_id: string
+          field_type?: string
+          id?: string
+          key: string
+          label: string
+          order_index?: number
+          organization_id: string
+          required?: boolean
+        }
+        Update: {
+          config_jsonb?: Json
+          created_at?: string
+          data_source_id?: string
+          field_type?: string
+          id?: string
+          key?: string
+          label?: string
+          order_index?: number
+          organization_id?: string
+          required?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_source_fields_org_source_fkey"
+            columns: ["organization_id", "data_source_id"]
+            isOneToOne: false
+            referencedRelation: "data_sources"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      data_source_items: {
+        Row: {
+          created_at: string
+          created_by: string
+          data_jsonb: Json
+          data_source_id: string
+          id: string
+          organization_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          data_jsonb?: Json
+          data_source_id: string
+          id?: string
+          organization_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          data_jsonb?: Json
+          data_source_id?: string
+          id?: string
+          organization_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_source_items_org_source_fkey"
+            columns: ["organization_id", "data_source_id"]
+            isOneToOne: false
+            referencedRelation: "data_sources"
+            referencedColumns: ["organization_id", "id"]
+          },
+        ]
+      }
+      data_sources: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          display_field_key: string
+          id: string
+          key: string
+          name: string
+          organization_id: string
+          status: string
+          updated_at: string
+          value_field_key: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          display_field_key: string
+          id?: string
+          key: string
+          name: string
+          organization_id: string
+          status?: string
+          updated_at?: string
+          value_field_key: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          display_field_key?: string
+          id?: string
+          key?: string
+          name?: string
+          organization_id?: string
+          status?: string
+          updated_at?: string
+          value_field_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_sources_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       form_versions: {
         Row: {
           change_note: string | null

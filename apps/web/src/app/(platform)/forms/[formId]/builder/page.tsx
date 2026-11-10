@@ -1,12 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormBuilder } from "@field/form-builder";
-import type { FormSchemaV1 } from "@field/form-engine";
+import {
+  FormBuilder,
+  type BuilderDataSourceOption,
+} from "@field/form-builder";
+import type { FormSchemaV1, OptionItem } from "@field/form-engine";
+import type { LookupProvider } from "@field/form-renderer";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { FormDraftResponse } from "@/lib/forms/contracts";
+import type { DataSourceSummary } from "@/lib/repositories/data-source-repository";
 import "@field/form-builder/styles.css";
 import "@field/form-renderer/styles.css";
 
@@ -16,46 +21,121 @@ export default function ProductionFormBuilderPage() {
   const params = useParams<{ formId: string }>();
   const formId = params.formId;
   const { activeOrganization, isLoading: authLoading } = useAuth();
+  const activeOrganizationId = activeOrganization?.id ?? null;
   const [data, setData] = useState<FormDraftResponse | null>(null);
+  const [dataSources, setDataSources] = useState<BuilderDataSourceOption[]>([]);
   const [state, setState] = useState<LoadState>("loading");
   const [error, setError] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const loadedDraftContextRef = useRef<string | null>(null);
 
-  const loadDraft = useCallback(async () => {
-    if (authLoading) return;
-    if (!activeOrganization) {
-      setError("Select an organization where you can manage forms.");
-      setState("error");
-      return;
-    }
-
-    setState("loading");
-    setError("");
-    try {
+  const lookupProvider = useCallback<LookupProvider>(
+    async (config, context) => {
+      if (!activeOrganizationId || !config.targetEntity) return [];
+      const params = new URLSearchParams({
+        organizationId: activeOrganizationId,
+        displayField: config.displayField,
+        valueField: config.valueField,
+      });
       const response = await fetch(
-        `/api/forms/${encodeURIComponent(formId)}/draft?organizationId=${encodeURIComponent(activeOrganization.id)}`,
+        `/api/data-sources/${encodeURIComponent(config.targetEntity)}/lookup?${params.toString()}`,
+        { signal: context.signal },
       );
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || "Unable to load the form draft.");
-      setData(body as FormDraftResponse);
-      setState("ready");
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "Unable to load the form draft.",
-      );
-      setState("error");
-    }
-  }, [activeOrganization, authLoading, formId]);
+      if (!response.ok) {
+        throw new Error("Failed to load lookup options.");
+      }
+      const body = (await response.json()) as { options?: OptionItem[] };
+      return body.options ?? [];
+    },
+    [activeOrganizationId],
+  );
+
+  const loadDraft = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (authLoading) return;
+      if (!activeOrganizationId) {
+        loadedDraftContextRef.current = null;
+        setError("Select an organization where you can manage forms.");
+        setState("error");
+        return;
+      }
+
+      const contextKey = `${activeOrganizationId}:${formId}`;
+      if (!options?.force && loadedDraftContextRef.current === contextKey) {
+        return;
+      }
+
+      setState("loading");
+      setError("");
+      try {
+        const response = await fetch(
+          `/api/forms/${encodeURIComponent(formId)}/draft?organizationId=${encodeURIComponent(activeOrganizationId)}`,
+        );
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(body.error || "Unable to load the form draft.");
+        loadedDraftContextRef.current = contextKey;
+        setHasUnsavedChanges(false);
+        setData(body as FormDraftResponse);
+        setState("ready");
+
+        fetch(
+          `/api/data-sources?organizationId=${encodeURIComponent(activeOrganizationId)}`,
+        )
+          .then(async (dsRes) => {
+            if (!dsRes.ok) return;
+            const dsBody = (await dsRes.json()) as {
+              dataSources?: DataSourceSummary[];
+            };
+            const list = dsBody.dataSources ?? [];
+            setDataSources(
+              list.map((ds) => ({
+                id: ds.id,
+                key: ds.key,
+                name: ds.name,
+                status: ds.status,
+                displayFieldKey: ds.display_field_key,
+                valueFieldKey: ds.value_field_key,
+                fields: ds.fields.map((f) => ({
+                  key: f.key,
+                  label: f.label,
+                })),
+              })),
+            );
+          })
+          .catch(() => {
+            // Non-blocking: draft authoring continues even if data sources fail to load
+          });
+      } catch (reason) {
+        loadedDraftContextRef.current = null;
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Unable to load the form draft.",
+        );
+        setState("error");
+      }
+    },
+    [activeOrganizationId, authLoading, formId],
+  );
 
   useEffect(() => {
     void loadDraft();
   }, [loadDraft]);
 
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
   async function createDraft() {
-    if (!activeOrganization) return;
+    if (!activeOrganizationId) return;
     setCreatingDraft(true);
     setError("");
     try {
@@ -64,13 +144,13 @@ export default function ProductionFormBuilderPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ organizationId: activeOrganization.id }),
+          body: JSON.stringify({ organizationId: activeOrganizationId }),
         },
       );
       const body = await response.json();
       if (!response.ok)
         throw new Error(body.error || "Unable to create a new draft.");
-      await loadDraft();
+      await loadDraft({ force: true });
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -83,7 +163,7 @@ export default function ProductionFormBuilderPage() {
   }
 
   async function saveDraft(schema: FormSchemaV1) {
-    if (!activeOrganization || !data?.draft)
+    if (!activeOrganizationId || !data?.draft)
       throw new Error("No editable draft is available.");
     const response = await fetch(
       `/api/forms/${encodeURIComponent(formId)}/draft`,
@@ -91,7 +171,7 @@ export default function ProductionFormBuilderPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          organizationId: activeOrganization.id,
+          organizationId: activeOrganizationId,
           versionId: data.draft.id,
           schema,
         }),
@@ -99,6 +179,7 @@ export default function ProductionFormBuilderPage() {
     );
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Draft save failed.");
+    setHasUnsavedChanges(false);
     setData((current) =>
       current ? { ...current, draft: body.version } : current,
     );
@@ -131,7 +212,7 @@ export default function ProductionFormBuilderPage() {
           <p className="mt-1">{error}</p>
           <button
             type="button"
-            onClick={() => void loadDraft()}
+            onClick={() => void loadDraft({ force: true })}
             className="mt-3 rounded border border-red-300 px-3 py-2 text-xs font-semibold"
           >
             Try again
@@ -166,6 +247,9 @@ export default function ProductionFormBuilderPage() {
         <FormBuilder
           key={data.draft.id}
           initialSchema={data.draft.schema_jsonb as FormSchemaV1}
+          dataSources={dataSources}
+          lookupProvider={lookupProvider}
+          onChange={() => setHasUnsavedChanges(true)}
           onSave={saveDraft}
         />
       )}

@@ -18,6 +18,10 @@ export interface FieldProps {
   validationPath?: string;
   onChange: (value: FieldValue) => void;
   lookupProvider?: LookupProvider;
+  onLookupOptionsLoaded?: (
+    fieldId: string,
+    options: readonly OptionItem[],
+  ) => void;
 }
 const text = (value: FieldValue | undefined) =>
   typeof value === "string" || typeof value === "number" ? String(value) : "";
@@ -205,6 +209,7 @@ function LookupField(p: FieldProps) {
         )
           throw new Error("Invalid options");
         setOptions(items);
+        p.onLookupOptionsLoaded?.(p.field.id, items);
         setStatus("ready");
       })
       .catch(() => {

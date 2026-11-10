@@ -7,6 +7,7 @@ import { TenantSwitcher } from "./tenant-switcher";
 import {
   LayoutDashboard,
   FileSpreadsheet,
+  Database,
   CheckSquare,
   Briefcase,
   Boxes,
@@ -54,6 +55,11 @@ const NAV_ITEMS: NavSection[] = [
         href: "/forms",
         icon: FileSpreadsheet,
         highlight: true,
+      },
+      {
+        label: "Data Sources",
+        href: "/data-sources",
+        icon: Database,
       },
       { label: "Approvals Workflow", href: "/approvals", icon: CheckSquare },
     ],

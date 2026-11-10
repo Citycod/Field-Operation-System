@@ -33,6 +33,30 @@ const defaultAuthService: AuthService = new SupabaseAuthService();
 const defaultOrgRepository: OrganizationRepository = new SupabaseOrganizationRepository();
 const defaultMembershipRepository: MembershipRepository = new SupabaseMembershipRepository();
 
+const ACTIVE_ORG_STORAGE_KEY = 'fieldops.activeOrganizationId';
+
+function readStoredOrganizationId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredOrganizationId(organizationId: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (organizationId) {
+      window.localStorage.setItem(ACTIVE_ORG_STORAGE_KEY, organizationId);
+    } else {
+      window.localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage quota or privacy-mode errors.
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeOrganization, setActiveOrg] = useState<Organization | null>(null);
@@ -42,8 +66,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tenantStatus, setTenantStatus] = useState<TenantResolutionStatus>('loading');
   const [tenantError, setTenantError] = useState<string | null>(null);
   const requestId = useRef(0);
+  const userRef = useRef<UserProfile | null>(null);
+  const tenantStatusRef = useRef<TenantResolutionStatus>('loading');
+
+  const updateTenantStatus = useCallback((nextStatus: TenantResolutionStatus) => {
+    tenantStatusRef.current = nextStatus;
+    setTenantStatus(nextStatus);
+  }, []);
 
   const clearState = useCallback(() => {
+    userRef.current = null;
     setUser(null);
     setMemberships([]);
     setOrganizations([]);
@@ -51,63 +83,109 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTenantError(null);
   }, []);
 
-  const loadAuth = useCallback(async () => {
-    const currentRequest = ++requestId.current;
-    setIsLoading(true);
-    setTenantStatus('loading');
-    setTenantError(null);
+  const loadAuth = useCallback(
+    async (options?: { background?: boolean }) => {
+      const isBackground =
+        options?.background === true &&
+        userRef.current !== null &&
+        tenantStatusRef.current === 'ready';
+      const currentRequest = ++requestId.current;
 
-    try {
-      const currentUser = await defaultAuthService.getCurrentUser();
-      if (currentRequest !== requestId.current) return;
-
-      if (!currentUser) {
-        clearState();
-        setTenantStatus('no-membership');
-        return;
+      if (!isBackground) {
+        setIsLoading(true);
+        updateTenantStatus('loading');
+        setTenantError(null);
       }
 
-      setUser(currentUser);
-
       try {
-        const userMemberships = await defaultMembershipRepository.findByUserId(currentUser.id);
+        const currentUser = await defaultAuthService.getCurrentUser();
         if (currentRequest !== requestId.current) return;
-        setMemberships(userMemberships);
 
-        if (userMemberships.length === 0) {
-          setOrganizations([]);
-          setActiveOrg(null);
-          setTenantStatus('no-membership');
+        if (!currentUser) {
+          clearState();
+          writeStoredOrganizationId(null);
+          updateTenantStatus('no-membership');
           return;
         }
 
-        const userOrgs = await defaultOrgRepository.findManyByIds(
-          userMemberships.map((membership) => membership.organization_id),
+        userRef.current = currentUser;
+        setUser((existing) =>
+          existing &&
+          existing.id === currentUser.id &&
+          existing.email === currentUser.email &&
+          existing.first_name === currentUser.first_name &&
+          existing.last_name === currentUser.last_name
+            ? existing
+            : currentUser,
         );
-        if (currentRequest !== requestId.current) return;
 
-        setOrganizations(userOrgs);
-        setActiveOrg((existing) =>
-          userOrgs.find((organization) => organization.id === existing?.id) ?? userOrgs[0] ?? null,
-        );
-        setTenantStatus(userOrgs.length > 0 ? 'ready' : 'no-membership');
+        try {
+          const userMemberships = await defaultMembershipRepository.findByUserId(currentUser.id);
+          if (currentRequest !== requestId.current) return;
+          setMemberships(userMemberships);
+
+          if (userMemberships.length === 0) {
+            setOrganizations([]);
+            setActiveOrg(null);
+            writeStoredOrganizationId(null);
+            updateTenantStatus('no-membership');
+            return;
+          }
+
+          const userOrgs = await defaultOrgRepository.findManyByIds(
+            userMemberships.map((membership) => membership.organization_id),
+          );
+          if (currentRequest !== requestId.current) return;
+
+          setOrganizations(userOrgs);
+          const storedOrgId = readStoredOrganizationId();
+          setActiveOrg((existing) => {
+            const preferredId = existing?.id ?? storedOrgId;
+            const nextOrg =
+              userOrgs.find((organization) => organization.id === preferredId) ??
+              userOrgs[0] ??
+              null;
+            if (!nextOrg) {
+              writeStoredOrganizationId(null);
+              return null;
+            }
+            writeStoredOrganizationId(nextOrg.id);
+            if (
+              existing &&
+              existing.id === nextOrg.id &&
+              existing.name === nextOrg.name &&
+              existing.slug === nextOrg.slug &&
+              existing.status === nextOrg.status
+            ) {
+              return existing;
+            }
+            return nextOrg;
+          });
+          updateTenantStatus(userOrgs.length > 0 ? 'ready' : 'no-membership');
+        } catch (error) {
+          if (currentRequest !== requestId.current) return;
+          // Preserve active workspace on transient background refresh errors.
+          if (isBackground) return;
+          setMemberships([]);
+          setOrganizations([]);
+          setActiveOrg(null);
+          updateTenantStatus('error');
+          setTenantError(error instanceof Error ? error.message : 'Unable to load tenant access.');
+        }
       } catch (error) {
         if (currentRequest !== requestId.current) return;
-        setMemberships([]);
-        setOrganizations([]);
-        setActiveOrg(null);
-        setTenantStatus('error');
-        setTenantError(error instanceof Error ? error.message : 'Unable to load tenant access.');
+        if (isBackground) return;
+        clearState();
+        updateTenantStatus('error');
+        setTenantError(
+          error instanceof Error ? error.message : 'Unable to verify the current session.',
+        );
+      } finally {
+        if (currentRequest === requestId.current) setIsLoading(false);
       }
-    } catch (error) {
-      if (currentRequest !== requestId.current) return;
-      clearState();
-      setTenantStatus('error');
-      setTenantError(error instanceof Error ? error.message : 'Unable to verify the current session.');
-    } finally {
-      if (currentRequest === requestId.current) setIsLoading(false);
-    }
-  }, [clearState]);
+    },
+    [clearState, updateTenantStatus],
+  );
 
   useEffect(() => {
     void loadAuth();
@@ -115,27 +193,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let subscription: { unsubscribe: () => void } | undefined;
     try {
       const supabase = createClient();
-      subscription = supabase.auth.onAuthStateChange((event) => {
+      subscription = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'INITIAL_SESSION') {
+          // Initial session is already loaded by the mount call above.
+          return;
+        }
+
         if (event === 'SIGNED_OUT') {
           requestId.current += 1;
           clearState();
-          setTenantStatus('no-membership');
+          writeStoredOrganizationId(null);
+          updateTenantStatus('no-membership');
           setIsLoading(false);
+          return;
+        }
+
+        const isSameAuthenticatedUser =
+          Boolean(userRef.current) &&
+          Boolean(session?.user?.id) &&
+          session?.user?.id === userRef.current?.id;
+
+        if (event === 'TOKEN_REFRESHED' && isSameAuthenticatedUser && tenantStatusRef.current === 'ready') {
+          // Token refreshed in the background for the current user; no UI disruption needed.
           return;
         }
 
         // Supabase invokes this callback while its auth lock is held. Defer
         // follow-up auth/database calls so sign-in and token refresh can finish.
-        window.setTimeout(() => void loadAuth(), 0);
+        window.setTimeout(
+          () => void loadAuth({ background: isSameAuthenticatedUser }),
+          0,
+        );
       }).data.subscription;
     } catch (error) {
       setIsLoading(false);
-      setTenantStatus('error');
+      updateTenantStatus('error');
       setTenantError(error instanceof Error ? error.message : 'Authentication is not configured.');
     }
 
     return () => subscription?.unsubscribe();
-  }, [clearState, loadAuth]);
+  }, [clearState, loadAuth, updateTenantStatus]);
 
   const currentRole = activeOrganization
     ? (memberships.find((membership) => membership.organization_id === activeOrganization.id)?.role_key ?? null)
@@ -143,9 +240,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveOrganization = (organization: Organization) => {
     if (organizations.some((candidate) => candidate.id === organization.id)) {
+      writeStoredOrganizationId(organization.id);
       setActiveOrg(organization);
     }
   };
+
+  const reload = useCallback(() => loadAuth({ background: false }), [loadAuth]);
 
   const logout = async () => {
     setIsLoading(true);
@@ -153,7 +253,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await defaultAuthService.signOut();
       requestId.current += 1;
       clearState();
-      setTenantStatus('no-membership');
+      writeStoredOrganizationId(null);
+      updateTenantStatus('no-membership');
     } finally {
       setIsLoading(false);
     }
@@ -172,7 +273,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tenantStatus,
         tenantError,
         setActiveOrganization,
-        reload: loadAuth,
+        reload,
         logout,
       }}
     >

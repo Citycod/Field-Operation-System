@@ -4,7 +4,21 @@ import { DetailsColumnDefinition } from '../schema/tabs';
 import { validateDraftSchema } from './draft-validator';
 import { ValidationResult } from './types';
 
-export function validatePublishableSchema(schema: unknown): ValidationResult {
+export interface PublishDataSourceSnapshot {
+  id?: string;
+  key: string;
+  status?: 'active' | 'inactive' | 'archived';
+  fields?: ReadonlyArray<{ key: string }>;
+}
+
+export interface PublishValidationContext {
+  dataSources?: readonly PublishDataSourceSnapshot[];
+}
+
+export function validatePublishableSchema(
+  schema: unknown,
+  context?: PublishValidationContext,
+): ValidationResult {
   const result = validateDraftSchema(schema);
   if (!result.valid) return result;
   const s = schema as FormSchemaV1;
@@ -13,6 +27,32 @@ export function validatePublishableSchema(schema: unknown): ValidationResult {
   for (const tab of s.tabs) {
     if (tab.type === 'form') fields.push(...tab.sections.flatMap(section => section.fields));
     if (tab.type === 'details') fields.push(...tab.configuration.columns);
+  }
+  if (context?.dataSources) {
+    for (const field of fields) {
+      if (field.type !== 'lookup' || !field.lookupConfig) continue;
+      const path = `field[${field.id}].lookupConfig`;
+      const target = field.lookupConfig.targetEntity?.trim();
+      const matched = context.dataSources.find(
+        ds => ds.key === target || (ds.id && ds.id === target),
+      );
+      if (!matched) {
+        fail(`${path}.targetEntity`, 'BROKEN_LOOKUP_SOURCE', `Lookup data source "${target}" does not exist`);
+        continue;
+      }
+      if (matched.status && matched.status !== 'active') {
+        fail(`${path}.targetEntity`, 'INACTIVE_LOOKUP_SOURCE', `Lookup data source "${target}" is not active`);
+      }
+      if (matched.fields && matched.fields.length > 0) {
+        const fieldKeys = new Set(matched.fields.map(f => f.key));
+        if (!fieldKeys.has(field.lookupConfig.displayField)) {
+          fail(`${path}.displayField`, 'BROKEN_LOOKUP_FIELD', `Lookup display field "${field.lookupConfig.displayField}" does not exist on data source "${matched.key}"`);
+        }
+        if (!fieldKeys.has(field.lookupConfig.valueField)) {
+          fail(`${path}.valueField`, 'BROKEN_LOOKUP_FIELD', `Lookup value field "${field.lookupConfig.valueField}" does not exist on data source "${matched.key}"`);
+        }
+      }
+    }
   }
   const ids = new Set(fields.map(field => field.id));
   const keys = new Set(fields.map(field => field.key));

@@ -12,6 +12,7 @@ import type {
   FormSchemaV1,
   FormSectionDefinition,
   HeaderSectionDefinition,
+  OptionItem,
 } from "@field/form-engine";
 import type { FormRendererProps, RendererValue, ValueError } from "./types";
 import {
@@ -70,13 +71,24 @@ function ValidForm({
   const [message, setMessage] = useState("");
   const summary = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const lookupOptionsRef = useRef<Record<string, readonly OptionItem[]>>({});
   const readonly = mode === "readOnly";
+  function handleLookupOptionsLoaded(
+    fieldId: string,
+    options: readonly OptionItem[],
+  ) {
+    lookupOptionsRef.current = {
+      ...lookupOptionsRef.current,
+      [fieldId]: options,
+    };
+  }
   function update(next: RendererValue) {
     if (readonly) return;
     setLocal(next);
     props.onChange?.(next);
     setMessage("");
-    if (checked) setErrors(validateValue(schema, next));
+    if (checked)
+      setErrors(validateValue(schema, next, lookupOptionsRef.current));
   }
   function fields(items: FieldDefinition[], columns = 2) {
     return (
@@ -97,6 +109,7 @@ function ValidForm({
             value={value.fields[field.key]}
             disabled={readonly}
             lookupProvider={props.lookupProvider}
+            onLookupOptionsLoaded={handleLookupOptionsLoaded}
             error={
               errors.find((e) => e.path === `fields.${field.key}`)?.message
             }
@@ -149,7 +162,11 @@ function ValidForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (readonly) return;
-        const nextErrors = validateValue(schema, value);
+        const nextErrors = validateValue(
+          schema,
+          value,
+          lookupOptionsRef.current,
+        );
         setErrors(nextErrors);
         setChecked(true);
         if (nextErrors.length) {
@@ -302,6 +319,7 @@ function ValidForm({
               errors={errors}
               prefix={`${prefix}-${t.id}`}
               lookupProvider={props.lookupProvider}
+              onLookupOptionsLoaded={handleLookupOptionsLoaded}
             />
           )}
           {t.type === "notes" && (

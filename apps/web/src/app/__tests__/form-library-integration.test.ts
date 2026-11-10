@@ -35,4 +35,32 @@ describe("production Form Library and Builder wiring", () => {
     expect(formsRoute).toContain("authenticatedFormService()");
     expect(formsRoute).not.toMatch(/body\.userId/);
   });
+
+  it("presents an operational Dashboard free of developer placeholder remarks", () => {
+    const dashboard = source("src/app/(platform)/dashboard/page.tsx");
+    expect(dashboard).toContain("Operations Dashboard");
+    expect(dashboard).toContain("/api/forms?organizationId=");
+    expect(dashboard).toContain("/data-sources");
+    expect(dashboard).not.toContain("Phase 0 Shell Ready");
+    expect(dashboard).not.toContain("Open Form Builder Shell");
+    expect(dashboard).not.toContain("Multi-Tenant Isolated");
+    expect(dashboard).not.toContain("S3-Compatible");
+  });
+
+  it("wires Data Sources management and lookup resolution through server APIs without direct Supabase client imports in UI", () => {
+    const dsPage = source("src/app/(platform)/data-sources/page.tsx");
+    const builderPage = source(
+      "src/app/(platform)/forms/[formId]/builder/page.tsx",
+    );
+    const dsRoute = source("src/app/api/data-sources/route.ts");
+    const lookupRoute = source(
+      "src/app/api/data-sources/[dataSourceId]/lookup/route.ts",
+    );
+    expect(dsPage).toContain("/api/data-sources");
+    expect(dsPage).not.toContain("@supabase");
+    expect(builderPage).toContain("/api/data-sources/");
+    expect(builderPage).toContain("lookupProvider={lookupProvider}");
+    expect(dsRoute).toContain("authenticatedDataSourceService()");
+    expect(lookupRoute).toContain("resolveLookupOptions");
+  });
 });
