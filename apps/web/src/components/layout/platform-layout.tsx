@@ -111,18 +111,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
-  if (isLoading || (!user && tenantStatus !== "error")) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-700">
-        <div className="flex items-center gap-2 text-sm" role="status">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Verifying your session…
-        </div>
-      </div>
-    );
-  }
-
-  if (tenantStatus === "error") {
+  if (!isLoading && tenantStatus === "error") {
     return (
       <AccessState
         icon={<RefreshCw className="h-5 w-5" />}
@@ -140,7 +129,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!activeOrganization || tenantStatus === "no-membership") {
+  if (!isLoading && (!activeOrganization || tenantStatus === "no-membership")) {
     return (
       <AccessState
         icon={<Building2 className="h-5 w-5" />}
@@ -223,7 +212,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
               Active Context:
             </span>
             <span className="truncate text-xs font-bold text-slate-900 dark:text-slate-100">
-              {activeOrganization.name}
+              {activeOrganization?.name || (isLoading ? "Loading…" : "No Organization")}
             </span>
             {currentRole && (
               <Badge
