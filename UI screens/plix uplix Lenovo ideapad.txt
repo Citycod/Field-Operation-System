@@ -1,0 +1,418 @@
+plix@uplix-Lenovo-ideapad-320-15ABR:~$ free -h
+               total        used        free      shared  buff/cache   available
+Mem:           3.3Gi       1.3Gi       900Mi        17Mi       1.4Gi       2.0Gi
+Swap:          3.6Gi          0B       3.6Gi
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo lshw -class memory
+[sudo: authenticate] Password:             
+  *-cache:0                 
+       description: L1 cache
+       physical id: 22
+       slot: L1 Cache
+       size: 320KiB
+       capacity: 320KiB
+       clock: 1GHz (1.0ns)
+       capabilities: pipeline-burst internal write-back unified
+       configuration: level=1
+  *-cache:1
+       description: L2 cache
+       physical id: 23
+       slot: L2 Cache
+       size: 2MiB
+       capacity: 2MiB
+       clock: 1GHz (1.0ns)
+       capabilities: pipeline-burst internal write-back unified
+       configuration: level=2
+  *-memory
+       description: System Memory
+       physical id: 24
+       slot: System board or motherboard
+       size: 12GiB
+     *-bank:0
+          description: SODIMM DDR4 Synchronous Unbuffered (Unregistered) 1866 MHz (0.5 ns)
+          product: 8ATF1G64HZ-2G6E1
+          vendor: Micron
+          physical id: 0
+          serial: 1EDCA614
+          slot: DIMM 0
+          size: 8GiB
+          width: 64 bits
+          clock: 1866MHz (0.5ns)
+     *-bank:1
+          description: SODIMM DDR4 Synchronous Unbuffered (Unregistered) 1866 MHz (0.5 ns)
+          product: M471A5244CB0-CRC
+          vendor: Samsung
+          physical id: 1
+          serial: 00000000
+          slot: DIMM 0
+          size: 4GiB
+          width: 64 bits
+          clock: 1866MHz (0.5ns)
+  *-firmware
+       description: BIOS
+       vendor: LENOVO
+       physical id: 0
+       version: 5QCN20WW
+       date: 11/29/2017
+       size: 128KiB
+       capacity: 8MiB
+       capabilities: pci upgrade shadowing cdboot bootselect edd int5printscreen int9keyboard int14serial int17printer int10video acpi usb biosbootspecification netboot uefi
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ uname -m
+x86_64
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ getconf LONG_BIT
+64
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ cat /proc/cmdline
+BOOT_IMAGE=/boot/vmlinuz-7.0.0-29-generic root=UUID=f06a2a57-6ce0-41dd-94c1-37ef5b0f8035 ro quiet splash crashkernel=2G-4G:320M,4G-32G:512M,32G-64G:1024M,64G-128G:2048M,128G-:4096M
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo dmesg | grep -i -E "memory|BIOS-e820|usuable|reserved"
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x0000000000086fff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x0000000000087000-0x0000000000087fff]  ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x0000000000088000-0x000000000009efff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x000000000009f000-0x000000000009ffff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000000a0000-0x00000000000dffff]
+[    0.000000] BIOS-e820: [mem 0x00000000000e0000-0x00000000000fffff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x00000000d8a05fff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x00000000d8a06000-0x00000000ddc05fff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x00000000ddc06000-0x00000000ddd25fff]  ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x00000000ddd26000-0x00000000ddda5fff]  ACPI data
+[    0.000000] BIOS-e820: [mem 0x00000000ddda6000-0x00000000ddda7fff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x00000000ddda8000-0x00000000de1aafff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x00000000de1ab000-0x00000000df7fffff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x00000000df800000-0x00000000dfffffff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000e0000000-0x00000000e89fffff]
+[    0.000000] BIOS-e820: [mem 0x00000000e8a00000-0x00000000e8afffff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000e8b00000-0x00000000fed7ffff]
+[    0.000000] BIOS-e820: [mem 0x00000000fed80000-0x00000000fed80fff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000fed81000-0x00000000ffffffff]
+[    0.000000] BIOS-e820: [mem 0x0000000100000000-0x0000000119ffffff]  System RAM
+[    0.000000] e820: remove [mem 0xe8a00000-0xe8afffff] device reserved
+[    0.000000] DMI: Memory slots populated: 2/2
+[    0.000251] e820: update [mem 0x00000000-0x00000fff] System RAM ==> device reserved
+[    0.005972] ACPI: Reserving FACP table memory at [mem 0xddda2000-0xddda210b]
+[    0.005973] ACPI: Reserving DSDT table memory at [mem 0xddd95000-0xddd9d7c3]
+[    0.005975] ACPI: Reserving FACS table memory at [mem 0xddcd2000-0xddcd203f]
+[    0.005976] ACPI: Reserving UEFI table memory at [mem 0xddcd5000-0xddcd5041]
+[    0.005977] ACPI: Reserving HPET table memory at [mem 0xddda1000-0xddda1037]
+[    0.005978] ACPI: Reserving APIC table memory at [mem 0xddda0000-0xddda008f]
+[    0.005979] ACPI: Reserving MCFG table memory at [mem 0xddd9f000-0xddd9f03b]
+[    0.005980] ACPI: Reserving SBST table memory at [mem 0xddd9e000-0xddd9e02f]
+[    0.005981] ACPI: Reserving MSDM table memory at [mem 0xddd93000-0xddd93054]
+[    0.005982] ACPI: Reserving BATB table memory at [mem 0xddd92000-0xddd92049]
+[    0.005983] ACPI: Reserving SSDT table memory at [mem 0xddd88000-0xddd90895]
+[    0.005984] ACPI: Reserving IVRS table memory at [mem 0xddd87000-0xddd870af]
+[    0.005985] ACPI: Reserving CRAT table memory at [mem 0xddd86000-0xddd86527]
+[    0.005986] ACPI: Reserving VFCT table memory at [mem 0xddd76000-0xddd85e83]
+[    0.005987] ACPI: Reserving TPM2 table memory at [mem 0xddd75000-0xddd75033]
+[    0.005988] ACPI: Reserving SSDT table memory at [mem 0xddd94000-0xddd94642]
+[    0.005989] ACPI: Reserving SSDT table memory at [mem 0xddda3000-0xddda33e1]
+[    0.005991] ACPI: Reserving SSDT table memory at [mem 0xddd91000-0xddd919f7]
+[    0.005992] ACPI: Reserving SSDT table memory at [mem 0xddd73000-0xddd74698]
+[    0.005993] ACPI: Reserving FPDT table memory at [mem 0xddd72000-0xddd72033]
+[    0.005994] ACPI: Reserving SSDT table memory at [mem 0xddd70000-0xddd71768]
+[    0.005995] ACPI: Reserving BGRT table memory at [mem 0xddd6f000-0xddd6f037]
+[    0.005996] ACPI: Reserving UEFI table memory at [mem 0xddccc000-0xddccc101]
+[    0.006421] crashkernel reserved: 0x00000000ac000000 - 0x00000000c0000000 (320 MB)
+[    0.006537] e820: update [mem 0xd14cc000-0xd1547fff] System RAM ==> device reserved
+[    0.006598] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.006601] PM: hibernation: Registered nosave memory: [mem 0x00087000-0x00087fff]
+[    0.006603] PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+[    0.006605] PM: hibernation: Registered nosave memory: [mem 0xd14cc000-0xd1547fff]
+[    0.006607] PM: hibernation: Registered nosave memory: [mem 0xd8a06000-0xddda5fff]
+[    0.006609] PM: hibernation: Registered nosave memory: [mem 0xddda8000-0xde1aafff]
+[    0.006611] PM: hibernation: Registered nosave memory: [mem 0xdf800000-0xffffffff]
+[    0.006661] Early memory node ranges
+[    0.148249] Freeing SMP alternatives memory: 56K
+[    0.148625] AppArmor: AppArmor secmark mediation reserved: ready to be enabled
+[    0.267439] Memory: 1886200K/3997672K available (23799K kernel code, 4952K rwdata, 16764K rodata, 5292K init, 5856K bss, 2100632K reserved, 0K cma-reserved)
+[    0.269358] x86/mm: Memory block size: 128MB
+[    0.284515] efi: Freeing EFI boot services memory: 79780K
+[    0.361334] acpi PNP0C02:00: Reserved [io  0x0f50-0x0f51]
+[    0.361347] acpi PNP0C02:00: Reserved [mem 0xfee00000-0xfee00fff]
+[    0.361351] acpi PNP0C02:00: Reserved [mem 0xf8000000-0xfbffffff]
+[    0.361398] acpi PNP0C02:01: Reserved [io  0x04d0-0x04d1]
+[    0.361400] acpi PNP0C02:01: Reserved [io  0x0530-0x0537]
+[    0.361403] acpi PNP0C02:01: Reserved [io  0x0800-0x0827]
+[    0.361405] acpi PNP0C02:01: Reserved [io  0x0830]
+[    0.361407] acpi PNP0C02:01: Reserved [io  0x0840-0x0847]
+[    0.361410] acpi PNP0C02:01: Reserved [io  0x0b00-0x0b1f]
+[    0.361412] acpi PNP0C02:01: Reserved [io  0x0b20-0x0b3f]
+[    0.361415] acpi PNP0C02:01: Reserved [io  0x0c00-0x0c01]
+[    0.361417] acpi PNP0C02:01: Reserved [io  0x0c14]
+[    0.361419] acpi PNP0C02:01: Reserved [io  0x0c50-0x0c52]
+[    0.361421] acpi PNP0C02:01: Reserved [io  0x0cd0-0x0cd1]
+[    0.361423] acpi PNP0C02:01: Reserved [io  0x0cd2-0x0cd3]
+[    0.361426] acpi PNP0C02:01: Reserved [io  0x0cd4-0x0cd5]
+[    0.361428] acpi PNP0C02:01: Reserved [io  0x0cd6-0x0cd7]
+[    0.361435] acpi PNP0C02:01: Reserved [io  0x0cd8-0x0cdf]
+[    0.361440] acpi PNP0C02:01: Reserved [io  0x8100-0x81ff]
+[    0.361442] acpi PNP0C02:01: Reserved [io  0x8200-0x82ff]
+[    0.361562] acpi PNP0C01:00: Reserved [mem 0xff800000-0xffffffff]
+[    0.361565] acpi PNP0C01:00: Reserved [mem 0xfec10000-0xfec1001f]
+[    0.361567] acpi PNP0C01:00: Reserved [mem 0xfed00000-0xfed003ff]
+[    0.361570] acpi PNP0C01:00: Reserved [mem 0xfed61000-0xfed613ff]
+[    0.361573] acpi PNP0C01:00: Reserved [mem 0xfed80000-0xfed80fff]
+[    0.747109] Freeing initrd memory: 36792K
+[    0.793567] Freeing unused decrypted memory: 2028K
+[    0.796376] Freeing unused kernel image (initmem) memory: 5292K
+[    0.797568] Freeing unused kernel image (text/rodata gap) memory: 776K
+[    0.798743] Freeing unused kernel image (rodata/data gap) memory: 1668K
+[    4.153615] systemd[1]: Listening on systemd-oomd.socket - Userspace Out-Of-Memory (OOM) Killer Socket.
+[   22.379743] amdgpu 0000:00:01.0: Trusted Memory Zone (TMZ) feature not supported
+[   22.393990] amdgpu 0000:00:01.0:  80M of VRAM memory ready
+[   22.394006] amdgpu 0000:00:01.0:  1698M of GTT memory ready.
+[   22.577757] [drm] DM_PPLIB:    memory_max_clock: 93300
+[   22.577774] [drm] DM_PPLIB:    memory_max_clock: 93300
+[   22.577777] [drm] DM_PPLIB: values for Memory clock
+[   22.577783] [drm] DM_PPLIB:    memory_max_clock: 93300
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo dmidecode -t bios
+# dmidecode 3.6
+Getting SMBIOS data from sysfs.
+SMBIOS 3.0.0 present.
+
+Handle 0x001E, DMI type 13, 22 bytes
+BIOS Language Information
+	Language Description Format: Abbreviated
+	Installable Languages: 6
+		en-US
+		fr-FR
+		ja-JP
+		ko-KR
+		zh-CHT
+		zh-CHS
+	Currently Installed Language: en-US
+
+Handle 0x0000, DMI type 0, 24 bytes
+BIOS Information
+	Vendor: LENOVO
+	Version: 5QCN20WW
+	Release Date: 11/29/2017
+	Address: 0xE0000
+	Runtime Size: 128 kB
+	ROM Size: 8 MB
+	Characteristics:
+		PCI is supported
+		BIOS is upgradeable
+		BIOS shadowing is allowed
+		Boot from CD is supported
+		Selectable boot is supported
+		EDD is supported
+		Print screen service is supported (int 5h)
+		8042 keyboard services are supported (int 9h)
+		Serial services are supported (int 14h)
+		Printer services are supported (int 17h)
+		CGA/mono video services are supported (int 10h)
+		ACPI is supported
+		USB legacy is supported
+		BIOS boot specification is supported
+		Function key-initiated network boot is supported
+		Targeted content distribution is supported
+		UEFI is supported
+	BIOS Revision: 1.20
+	Firmware Revision: 1.20
+
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo lspci -nn | grep -Ei 'VGA|Display|3D
+> 
+> ^C
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo lspci -nn | grep -Ei 'VGA|Display|3D'
+00:01.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Wani [Radeon R5/R6/R7 Graphics] [1002:9874] (rev c8)
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo journalctl -k -b | greb -i -E 'memory|amdgpu|reserved'
+Command 'greb' not found, did you mean:
+  command 'grex' from snap grex (v1.4.5)
+  command 'grab' from deb grab (3.0.1-3build2)
+  command 'grep' from deb grep (3.12-1)
+See 'snap info <snapname>' for additional versions.
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo journalctl -k -b | grep -i -E 'memory|amdgpu|reserved'
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x000000000009f000-0x000000000009ffff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x00000000000e0000-0x00000000000fffff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x00000000d8a06000-0x00000000ddc05fff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x00000000ddda8000-0x00000000de1aafff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x00000000df800000-0x00000000dfffffff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x00000000e8a00000-0x00000000e8afffff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: BIOS-e820: [mem 0x00000000fed80000-0x00000000fed80fff]  device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: e820: remove [mem 0xe8a00000-0xe8afffff] device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: DMI: Memory slots populated: 2/2
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: e820: update [mem 0x00000000-0x00000fff] System RAM ==> device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving FACP table memory at [mem 0xddda2000-0xddda210b]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving DSDT table memory at [mem 0xddd95000-0xddd9d7c3]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving FACS table memory at [mem 0xddcd2000-0xddcd203f]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving UEFI table memory at [mem 0xddcd5000-0xddcd5041]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving HPET table memory at [mem 0xddda1000-0xddda1037]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving APIC table memory at [mem 0xddda0000-0xddda008f]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving MCFG table memory at [mem 0xddd9f000-0xddd9f03b]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SBST table memory at [mem 0xddd9e000-0xddd9e02f]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving MSDM table memory at [mem 0xddd93000-0xddd93054]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving BATB table memory at [mem 0xddd92000-0xddd92049]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SSDT table memory at [mem 0xddd88000-0xddd90895]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving IVRS table memory at [mem 0xddd87000-0xddd870af]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving CRAT table memory at [mem 0xddd86000-0xddd86527]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving VFCT table memory at [mem 0xddd76000-0xddd85e83]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving TPM2 table memory at [mem 0xddd75000-0xddd75033]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SSDT table memory at [mem 0xddd94000-0xddd94642]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SSDT table memory at [mem 0xddda3000-0xddda33e1]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SSDT table memory at [mem 0xddd91000-0xddd919f7]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SSDT table memory at [mem 0xddd73000-0xddd74698]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving FPDT table memory at [mem 0xddd72000-0xddd72033]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving SSDT table memory at [mem 0xddd70000-0xddd71768]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving BGRT table memory at [mem 0xddd6f000-0xddd6f037]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: ACPI: Reserving UEFI table memory at [mem 0xddccc000-0xddccc101]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: crashkernel reserved: 0x00000000ac000000 - 0x00000000c0000000 (320 MB)
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: e820: update [mem 0xd14cc000-0xd1547fff] System RAM ==> device reserved
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0x00087000-0x00087fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xd14cc000-0xd1547fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xd8a06000-0xddda5fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xddda8000-0xde1aafff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xdf800000-0xffffffff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Early memory node ranges
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing SMP alternatives memory: 56K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: AppArmor: AppArmor secmark mediation reserved: ready to be enabled
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Memory: 1886200K/3997672K available (23799K kernel code, 4952K rwdata, 16764K rodata, 5292K init, 5856K bss, 2100632K reserved, 0K cma-reserved)
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: x86/mm: Memory block size: 128MB
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: efi: Freeing EFI boot services memory: 79780K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:00: Reserved [io  0x0f50-0x0f51]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:00: Reserved [mem 0xfee00000-0xfee00fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:00: Reserved [mem 0xf8000000-0xfbffffff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x04d0-0x04d1]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0530-0x0537]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0800-0x0827]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0830]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0840-0x0847]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0b00-0x0b1f]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0b20-0x0b3f]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0c00-0x0c01]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0c14]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0c50-0x0c52]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0cd0-0x0cd1]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0cd2-0x0cd3]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0cd4-0x0cd5]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0cd6-0x0cd7]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x0cd8-0x0cdf]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x8100-0x81ff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C02:01: Reserved [io  0x8200-0x82ff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C01:00: Reserved [mem 0xff800000-0xffffffff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C01:00: Reserved [mem 0xfec10000-0xfec1001f]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C01:00: Reserved [mem 0xfed00000-0xfed003ff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C01:00: Reserved [mem 0xfed61000-0xfed613ff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: acpi PNP0C01:00: Reserved [mem 0xfed80000-0xfed80fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing initrd memory: 36792K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused decrypted memory: 2028K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused kernel image (initmem) memory: 5292K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused kernel image (text/rodata gap) memory: 776K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused kernel image (rodata/data gap) memory: 1668K
+Aug 22 08:42:56 uplix-Lenovo-ideapad-320-15ABR systemd[1]: Listening on systemd-oomd.socket - Userspace Out-Of-Memory (OOM) Killer Socket.
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu: Virtual CRAT table created for CPU
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu: Topology: Add CPU node
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: initializing kernel modesetting (CARRIZO 0x1002:0x9874 0x17AA:0x39FF 0xC8).
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: register mmio base: 0xE8D00000
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: register mmio size: 262144
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 0 <common_v1_0_0> (vi_common)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 1 <gmc_v8_0_0> (gmc_v8_0)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 2 <ih_v3_0_0> (cz_ih)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 3 <gfx_v8_0_0> (gfx_v8_0)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 4 <sdma_v3_0_0> (sdma_v3_0)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 5 <smu_v1_0_0> (powerplay)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 6 <dce_v1_0_0> (dm)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 7 <uvd_v6_0_0> (uvd_v6_0)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 8 <vce_v3_1_0> (vce_v3_0)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: detected ip block number 9 <acp_v2_2_0> (acp_ip)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: Fetched VBIOS from VFCT
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] ATOM BIOS: 113-C75100-031
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] UVD is enabled in physical mode
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: Found VCE firmware Version: 52.4 Binary ID: 3
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] VCE enabled in physical mode
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: vgaarb: deactivate vga console
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: Trusted Memory Zone (TMZ) feature not supported
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: PCIE atomic ops is not supported
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: vm size is 64 GB, 2 levels, block size is 10-bit, fragment size is 9-bit
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: VRAM: 80M 0x000000F400000000 - 0x000000F404FFFFFF (80M used)
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: GART: 1024M 0x000000FF00000000 - 0x000000FF3FFFFFFF
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] Detected VRAM RAM=80M, BAR=80M
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] RAM width 64bits UNKNOWN
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0:  80M of VRAM memory ready
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0:  1698M of GTT memory ready.
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] GART: num cpu pages 262144, num gpu pages 262144
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] PCIE GART of 1024M enabled (table at 0x000000F400600000).
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu: hwmgr_sw_init smu backed is smu8_smu
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] Found UVD firmware Version: 1.91 Family ID: 11
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] UVD ENC is disabled
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu: smu version 27.17.00
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: [drm] DM_PPLIB:    memory_max_clock: 93300
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: [drm] DM_PPLIB:    memory_max_clock: 93300
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: [drm] DM_PPLIB: values for Memory clock
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: [drm] DM_PPLIB:    memory_max_clock: 93300
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] Display Core v3.2.369 initialized on DCE 11.0
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: snd_hda_intel 0000:00:01.1: bound 0000:00:01.0 (ops amdgpu_dm_audio_component_bind_ops [amdgpu])
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] UVD initialized successfully.
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] VCE initialized successfully.
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: SE 1, SH per SE 1, CU per SH 8, active_cu_number 8
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu: pp_dpm_get_sclk_od was not implemented.
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu: pp_dpm_get_mclk_od was not implemented.
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: Runtime PM not available
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] Using custom brightness curve
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] Registered 3 planes with drm panic
+Aug 22 08:43:14 uplix-Lenovo-ideapad-320-15ABR kernel: [drm] Initialized amdgpu 3.64.0 for 0000:00:01.0 on minor 1
+Aug 22 08:43:15 uplix-Lenovo-ideapad-320-15ABR kernel: fbcon: amdgpudrmfb (fb0) is primary device
+Aug 22 08:43:15 uplix-Lenovo-ideapad-320-15ABR kernel: amdgpu 0000:00:01.0: [drm] fb0: amdgpudrmfb frame buffer device
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo journalctl -k -b | grep -i "Memory:"
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0x00087000-0x00087fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xd14cc000-0xd1547fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xd8a06000-0xddda5fff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xddda8000-0xde1aafff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: PM: hibernation: Registered nosave memory: [mem 0xdf800000-0xffffffff]
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing SMP alternatives memory: 56K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Memory: 1886200K/3997672K available (23799K kernel code, 4952K rwdata, 16764K rodata, 5292K init, 5856K bss, 2100632K reserved, 0K cma-reserved)
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: efi: Freeing EFI boot services memory: 79780K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing initrd memory: 36792K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused decrypted memory: 2028K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused kernel image (initmem) memory: 5292K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused kernel image (text/rodata gap) memory: 776K
+Aug 22 08:42:53 uplix-Lenovo-ideapad-320-15ABR kernel: Freeing unused kernel image (rodata/data gap) memory: 1668K
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo cat /proc/iomem | head -40
+00000000-00000fff : Reserved
+00001000-00086fff : System RAM
+00087000-00087fff : ACPI Non-volatile Storage
+00088000-0009efff : System RAM
+0009f000-0009ffff : Reserved
+000e0000-000fffff : Reserved
+  000a0000-000effff : PCI Bus 0000:00
+    000c0000-000dffff : 0000:00:01.0
+  000f0000-000fffff : System ROM
+00100000-d14cbfff : System RAM
+  85600000-86d3df67 : Kernel code
+  86e00000-87e5efff : Kernel rodata
+  88000000-884d627f : Kernel data
+  88a48000-88ffffff : Kernel bss
+  ac000000-bfffffff : Crash kernel
+d14cc000-d1547fff : Reserved
+d1548000-d8a05fff : System RAM
+d8a06000-ddc05fff : Reserved
+ddc06000-ddd25fff : ACPI Non-volatile Storage
+  ddd1d000-ddd20fff : MSFT0101:00
+  ddd21000-ddd24fff : MSFT0101:00
+ddd26000-ddda5fff : ACPI Tables
+ddda6000-ddda7fff : System RAM
+ddda8000-de1aafff : Reserved
+de1ab000-df7fffff : System RAM
+df800000-dfffffff : Reserved
+e0000000-f7ffffff : PCI Bus 0000:00
+  e0000000-e7ffffff : 0000:00:01.0
+  e8000000-e87fffff : 0000:00:01.0
+  e8800000-e89fffff : PCI Bus 0000:01
+    e8800000-e89fffff : 0000:01:00.0
+      e8800000-e89fffff : ath
+  e8b00000-e8bfffff : 0000:00:08.0
+  e8c00000-e8cfffff : PCI Bus 0000:02
+    e8c00000-e8c03fff : 0000:02:00.0
+    e8c04000-e8c04fff : 0000:02:00.0
+      e8c04000-e8c04fff : r8169
+  e8d00000-e8d3ffff : 0000:00:01.0
+  e8d40000-e8d5ffff : 0000:00:08.0
+  e8d60000-e8d63fff : 0000:00:01.1
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo dmesg | grep -i "usable"
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo dmesg | grep -i "usable"
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ sudo dmesg | grep -i "usable
+> ^C
+uplix@uplix-Lenovo-ideapad-320-15ABR:~$ 
+
+

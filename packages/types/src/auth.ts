@@ -23,6 +23,8 @@ export type PermissionKey =
   | 'forms.create'
   | 'forms.edit'
   | 'forms.publish'
+  | 'data_sources.read'
+  | 'data_sources.manage'
   | 'submissions.create'
   | 'submissions.read_own'
   | 'submissions.read_all'

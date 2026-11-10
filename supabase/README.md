@@ -32,3 +32,50 @@ pnpm supabase gen types typescript --local > packages/types/src/database.ts
 - **`public.organizations`**: Multi-tenant organizations.
 - **`public.organization_memberships`**: Scoped user membership mapping `auth.users(id)` to `organizations(id)` with roles (`super_admin`, `business_admin`, `manager`, `employee`).
 - **`storage.buckets`**: Private object storage bucket (`platform-files`) with RLS policies restricting file access to organization members.
+
+## Phase 1 database regression checks
+
+```bash
+python3 supabase/tests/phase1_database.py
+```
+
+This creates and destroys an isolated PostgreSQL cluster under the system temporary
+directory. It applies every committed migration and tests actual database constraints,
+triggers, transactions, concurrent draft inserts, and RLS using a non-superuser,
+non-BYPASSRLS `authenticated` role. It requires `psql`, PostgreSQL server binaries
+(set `PHASE1_PG_BIN` if they are not under `/usr/lib/postgresql/18/bin`), and permission
+to open a local Unix socket. It never connects to the configured remote project.
+
+The harness supplies minimal `auth.users`, `auth.uid()` and storage scaffolding.
+Consequently this is real PostgreSQL RLS integration coverage, but it is **not**
+Supabase Auth/JWT, PostgREST, or hosted-project verification. The local version used
+for hardening was PostgreSQL 18; `config.toml` targets Supabase PostgreSQL 15.
+
+The hardening migration removes the legacy three-argument publish overload and
+uses an authenticated, RLS-enforcing two-argument RPC. Published and archived
+snapshots protect every column except `change_note`; a published snapshot may
+also move once to `archived`. Publication metadata is set from `auth.uid()` and
+database time, including for direct status updates. Application publish validation
+and authorization remain required; the SQL RPC does not run TypeScript semantic
+validation and must not be presented as a substitute for the application service.
+
+
+## Hosted Phase 1 verification
+
+```bash
+python3 supabase/tests/phase1_hosted.py --project-ref YOUR_DEVELOPMENT_PROJECT_REF
+```
+
+This opt-in runner requires an ignored root `.env`, an existing matching CLI
+project link, administrative Auth credentials, a public API key, and management
+SQL access. It creates isolated test users/tenants and uses authenticated user
+sessions for tenant-isolation and lifecycle assertions. It removes its fixtures
+with scoped administrative cleanup, including immutable test snapshots, and
+never prints credentials. Do not run it against production.
+
+The append-only `20260930000000_phase1_table_privileges.sql` supplies explicit
+minimum table privileges rather than relying on Supabase project defaults.
+It grants no anonymous table access, preserves RLS and RPC security, and removes
+unnecessary TRUNCATE/TRIGGER/REFERENCES privileges. See
+`../docs/form-builder/PHASE1-HOSTED-VERIFICATION.md` for the exact grant matrix,
+executed hosted evidence, and distinction from local/mocked tests.

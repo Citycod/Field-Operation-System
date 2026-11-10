@@ -17,10 +17,8 @@ pnpm-debug.log*
 
 # Environment & Secrets
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 *.pem
 
 # IDEs
@@ -37,3 +35,7 @@ test-results/
 
 # Docker volumes
 .docker-data/
+
+# Local Supabase project link/cache (never version-control connection metadata)
+supabase/.temp/
+supabase/.branches/

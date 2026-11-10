@@ -6,6 +6,8 @@ const ROLE_PERMISSIONS: Record<PlatformRole, PermissionKey[]> = {
     'forms.create',
     'forms.edit',
     'forms.publish',
+    'data_sources.read',
+    'data_sources.manage',
     'submissions.create',
     'submissions.read_own',
     'submissions.read_all',
@@ -17,6 +19,8 @@ const ROLE_PERMISSIONS: Record<PlatformRole, PermissionKey[]> = {
     'forms.create',
     'forms.edit',
     'forms.publish',
+    'data_sources.read',
+    'data_sources.manage',
     'submissions.create',
     'submissions.read_own',
     'submissions.read_all',
@@ -25,6 +29,7 @@ const ROLE_PERMISSIONS: Record<PlatformRole, PermissionKey[]> = {
   ],
   manager: [
     'forms.read',
+    'data_sources.read',
     'submissions.create',
     'submissions.read_own',
     'submissions.read_all',
@@ -33,6 +38,7 @@ const ROLE_PERMISSIONS: Record<PlatformRole, PermissionKey[]> = {
   ],
   employee: [
     'forms.read',
+    'data_sources.read',
     'submissions.create',
     'submissions.read_own',
   ],

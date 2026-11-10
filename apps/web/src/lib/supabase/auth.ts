@@ -3,11 +3,18 @@ import { UserProfile, Organization, OrganizationMembership, PlatformRole } from 
 
 export async function getCurrentUser(): Promise<UserProfile | null> {
   const supabase = createClient();
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) throw new Error(sessionError.message);
+  if (!session) return null;
+
   const { data: { user }, error } = await supabase.auth.getUser();
 
-  if (error || !user) {
-    return null;
-  }
+  if (error) throw new Error(error.message);
+  if (!user) return null;
 
   // Fetch optional profile metadata
   const { data } = await supabase

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@field/config": "workspace:*",
+    "@field/form-builder": "workspace:*",
     "@field/types": "workspace:*",
     "@field/ui": "workspace:*",
     "@supabase/ssr": "^0.5.2",
@@ -21,7 +22,8 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwind-merge": "^2.5.2"
+    "tailwind-merge": "^2.5.2",
+    "@field/form-renderer": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
