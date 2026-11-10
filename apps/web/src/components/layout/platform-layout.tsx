@@ -32,8 +32,40 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [logoutError, setLogoutError] = useState("");
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("fieldops_sidebar_collapsed");
+      if (saved === "true") {
+        setIsSidebarCollapsed(true);
+      }
+    } catch {
+      // ignore when localStorage is unavailable
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("fieldops_sidebar_collapsed", String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  const handleMenuClick = () => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      setNavigationOpen((prev) => !prev);
+    } else {
+      toggleSidebar();
+    }
+  };
 
   useEffect(() => {
     if (!isLoading && !user && tenantStatus !== "error") {
@@ -124,7 +156,17 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh min-w-0 overflow-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <Sidebar className="hidden lg:flex" />
+      {/* Desktop Collapsible Sidebar */}
+      <div
+        className={`hidden lg:flex shrink-0 transition-[width] duration-300 ease-in-out overflow-hidden ${
+          isSidebarCollapsed ? "w-0 border-r-0" : "w-64"
+        }`}
+      >
+        <Sidebar
+          className="w-64"
+          onToggleCollapse={toggleSidebar}
+        />
+      </div>
 
       {navigationOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
@@ -163,10 +205,17 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
             <button
               ref={menuButtonRef}
               type="button"
-              aria-label="Open navigation"
-              aria-expanded={navigationOpen}
-              onClick={() => setNavigationOpen(true)}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 lg:hidden"
+              aria-label={
+                navigationOpen
+                  ? "Close navigation"
+                  : isSidebarCollapsed
+                    ? "Expand sidebar"
+                    : "Collapse sidebar"
+              }
+              aria-expanded={navigationOpen || !isSidebarCollapsed}
+              title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={handleMenuClick}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
             >
               <Menu className="h-5 w-5" />
             </button>

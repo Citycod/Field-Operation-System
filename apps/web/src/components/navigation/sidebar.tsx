@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Settings,
   LucideIcon,
+  Menu,
 } from "lucide-react";
 
 interface NavItem {
@@ -82,9 +83,11 @@ const NAV_ITEMS: NavSection[] = [
 export function Sidebar({
   className = "",
   onNavigate,
+  onToggleCollapse,
 }: {
   className?: string;
   onNavigate?: () => void;
+  onToggleCollapse?: () => void;
 }) {
   const pathname = usePathname();
 
@@ -93,18 +96,31 @@ export function Sidebar({
       className={`flex h-full w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-950 text-slate-300 ${className}`}
     >
       {/* Brand Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center space-x-3">
-        <div className="h-8 w-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
-          F
+      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="h-8 w-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
+            F
+          </div>
+          <div>
+            <h1 className="text-sm font-bold text-white tracking-wide">
+              FieldOps
+            </h1>
+            <p className="text-[10px] text-slate-400 font-mono">
+              Platform v0.1.0
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-sm font-bold text-white tracking-wide">
-            FieldOps
-          </h1>
-          <p className="text-[10px] text-slate-400 font-mono">
-            Platform v0.1.0
-          </p>
-        </div>
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            className="grid h-8 w-8 place-items-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Tenant Context Selector */}
