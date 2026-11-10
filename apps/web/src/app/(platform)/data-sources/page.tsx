@@ -172,7 +172,7 @@ export default function DataSourcesPage() {
 
   useEffect(() => {
     void loadSources();
-  }, [activeOrganizationId, authLoading]);
+  }, [loadSources]);
 
   useEffect(() => {
     if (selectedSourceId && activeOrganizationId) {
