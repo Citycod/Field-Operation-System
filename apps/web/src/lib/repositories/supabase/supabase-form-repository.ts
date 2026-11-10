@@ -197,8 +197,19 @@ export class SupabaseFormRepository implements FormRepository {
     versionId: string;
     organizationId: string;
     userId: string;
+    changeNote?: string;
   }): Promise<void> {
     const supabase = this.client();
+
+    if (params.changeNote) {
+      await supabase
+        .from('form_versions')
+        .update({ change_note: params.changeNote })
+        .eq('id', params.versionId)
+        .eq('form_id', params.formId)
+        .eq('organization_id', params.organizationId)
+        .eq('status', 'draft');
+    }
     
     // Call atomic RPC — published_by is derived from auth.uid() inside the
     // DB function, not from the caller-supplied userId. The userId param is
@@ -211,6 +222,22 @@ export class SupabaseFormRepository implements FormRepository {
     if (error) {
       throw new Error(`Failed to publish form version atomically: ${error.message}`);
     }
+  }
+
+  async listVersions(formId: string, organizationId: string): Promise<FormVersionEntity[]> {
+    const supabase = this.client();
+    const { data, error } = await supabase
+      .from('form_versions')
+      .select('*')
+      .eq('form_id', formId)
+      .eq('organization_id', organizationId)
+      .order('version_number', { ascending: false });
+
+    if (error) {
+      throw new Error(`Failed to list form versions: ${error.message}`);
+    }
+
+    return (data || []) as unknown as FormVersionEntity[];
   }
 
   async createDraftFromPublished(params: {

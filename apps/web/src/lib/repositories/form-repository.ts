@@ -68,7 +68,10 @@ export interface FormRepository {
     versionId: string;
     organizationId: string;
     userId: string;
+    changeNote?: string;
   }): Promise<void>;
+
+  listVersions(formId: string, organizationId: string): Promise<FormVersionEntity[]>;
 
   createDraftFromPublished(params: {
     formId: string;

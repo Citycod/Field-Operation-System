@@ -152,6 +152,7 @@ class MockFormRepository implements FormRepository {
     versionId: string;
     organizationId: string;
     userId: string;
+    changeNote?: string;
   }) {
     const v = this.versions.get(params.versionId);
     if (!v || v.status !== 'draft' || v.organization_id !== params.organizationId) {
@@ -160,6 +161,7 @@ class MockFormRepository implements FormRepository {
     v.status = 'published';
     v.published_by = params.userId;
     v.published_at = new Date().toISOString();
+    if (params.changeNote) v.change_note = params.changeNote;
 
     const f = this.forms.get(params.formId);
     if (f) {
@@ -167,6 +169,12 @@ class MockFormRepository implements FormRepository {
       f.current_draft_version_id = null;
       f.updated_at = new Date().toISOString();
     }
+  }
+
+  async listVersions(formId: string, organizationId: string): Promise<FormVersionEntity[]> {
+    return [...this.versions.values()]
+      .filter((v) => v.form_id === formId && v.organization_id === organizationId)
+      .sort((a, b) => b.version_number - a.version_number);
   }
 
   async createDraftFromPublished(params: {
@@ -375,6 +383,101 @@ describe('FormService', () => {
     await expect(formService.publishForm({ userId: userA, organizationId: orgA, formId: form.id, versionId: version.id })).rejects.toThrow('Cannot publish');
     expect(publish).not.toHaveBeenCalled();
     expect(formRepo.versions.get(version.id)?.status).toBe('draft');
+  });
+
+  it('publishes a form draft with an optional change note and updates status', async () => {
+    const { form, version } = await formService.createForm({
+      userId: userA,
+      organizationId: orgA,
+      key: 'publish-note-form',
+      title: 'Publish With Note',
+    });
+
+    await formService.publishForm({
+      userId: userA,
+      organizationId: orgA,
+      formId: form.id,
+      versionId: version.id,
+      changeNote: 'Initial production release v1',
+    });
+
+    const publishedVersion = formRepo.versions.get(version.id);
+    expect(publishedVersion?.status).toBe('published');
+    expect(publishedVersion?.change_note).toBe('Initial production release v1');
+    expect(publishedVersion?.published_by).toBe(userA);
+  });
+
+  it('retrieves full version history in descending version order and enforces tenant isolation', async () => {
+    const { form, version: draftV1 } = await formService.createForm({
+      userId: userA,
+      organizationId: orgA,
+      key: 'history-form',
+      title: 'History Form',
+    });
+
+    await formService.publishForm({
+      userId: userA,
+      organizationId: orgA,
+      formId: form.id,
+      versionId: draftV1.id,
+      changeNote: 'V1 published',
+    });
+
+    const draftV2 = await formService.createDraftFromPublished({
+      userId: userA,
+      organizationId: orgA,
+      formId: form.id,
+    });
+
+    // List versions for orgA
+    const history = await formService.listVersions({
+      userId: userA,
+      organizationId: orgA,
+      formId: form.id,
+    });
+
+    expect(history.length).toBe(2);
+    expect(history[0].version_number).toBe(2);
+    expect(history[0].status).toBe('draft');
+    expect(history[1].version_number).toBe(1);
+    expect(history[1].status).toBe('published');
+    expect(history[1].change_note).toBe('V1 published');
+
+    // Tenant isolation: querying from another tenant or unauthorized user rejects
+    await expect(
+      formService.listVersions({
+        userId: userB,
+        organizationId: orgB,
+        formId: form.id,
+      }),
+    ).rejects.toThrow('Form not found or inaccessible in this organization');
+  });
+
+  it('blocks saving edits to an already published version', async () => {
+    const { form, version } = await formService.createForm({
+      userId: userA,
+      organizationId: orgA,
+      key: 'immutable-form',
+      title: 'Immutable Form',
+    });
+
+    await formService.publishForm({
+      userId: userA,
+      organizationId: orgA,
+      formId: form.id,
+      versionId: version.id,
+    });
+
+    // Attempting to save draft to an already published version throws
+    await expect(
+      formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema: MINIMAL_VALID_SCHEMA,
+      }),
+    ).rejects.toThrow();
   });
 
   it.each(['disabled', 'employee', 'unrelated'])('blocks %s membership before writing', async kind => {

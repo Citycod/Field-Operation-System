@@ -449,6 +449,153 @@ describe("visual builder", () => {
       expect.any(Object),
     );
   });
+
+  it("blocks publishing and displays blocking validation errors when publish validation fails", async () => {
+    const publish = vi.fn();
+    const brokenSchema: FormSchemaV1 = {
+      ...blank(),
+      header: {
+        columns: 2,
+        sections: [
+          {
+            id: "sec_h",
+            key: "sec_h",
+            title: "Header Section",
+            order: 0,
+            fields: [
+              {
+                id: "f_broken_lookup",
+                key: "lookup_field",
+                label: "Broken Lookup",
+                type: "lookup",
+                order: 0,
+                width: "full",
+                required: false,
+                readOnly: false,
+                hidden: false,
+                lookupConfig: {
+                  targetEntity: "non_existent_source",
+                  displayField: "name",
+                  valueField: "id",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    render(
+      <FormBuilder
+        initialSchema={brokenSchema}
+        onPublish={publish}
+        dataSources={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = screen.getByRole("dialog", { name: "Publish Form Version" });
+    expect(dialog).toBeTruthy();
+    expect(
+      within(dialog).getByText(/Publishing blocked by validation errors/),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText(/non_existent_source/),
+    ).toBeTruthy();
+    expect(
+      within(dialog).queryByRole("button", { name: "Confirm & Publish" }),
+    ).toBeNull();
+    expect(publish).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Publish Form Version" }),
+    ).toBeNull();
+  });
+
+  it("allows publishing a valid draft schema with an optional change note", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const validSchema = blank();
+
+    render(
+      <FormBuilder
+        initialSchema={validSchema}
+        onPublish={publish}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = screen.getByRole("dialog", { name: "Publish Form Version" });
+    expect(dialog).toBeTruthy();
+
+    const noteInput = within(dialog).getByPlaceholderText(
+      /Describe what changed in this version/,
+    );
+    fireEvent.change(noteInput, {
+      target: { value: "Added basic requirements" },
+    });
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm & Publish" }),
+    );
+
+    expect(publish).toHaveBeenCalledWith("Added basic requirements");
+  });
+
+  it("displays version history in the Versions module tab and opens historical schema viewer", async () => {
+    const historicalSchema = blank();
+    historicalSchema.form.title = "Historical v1 Schema";
+
+    const mockVersions = [
+      {
+        id: "ver-1",
+        version_number: 1,
+        status: "published" as const,
+        schema_version: 1,
+        schema_jsonb: historicalSchema,
+        change_note: "Initial stable release",
+        created_at: "2026-11-10T10:00:00Z",
+        published_at: "2026-11-10T10:30:00Z",
+        published_by: "Lead Engineer",
+      },
+    ];
+
+    render(
+      <FormBuilder
+        initialSchema={blank()}
+        versions={mockVersions}
+      />,
+    );
+
+    // Switch to Versions tab
+    fireEvent.click(screen.getByRole("button", { name: "Versions" }));
+
+    expect(screen.getByText("Version History")).toBeTruthy();
+    expect(screen.getByText("v1")).toBeTruthy();
+    expect(screen.getByText("published")).toBeTruthy();
+    expect(screen.getByText("Lead Engineer")).toBeTruthy();
+    expect(screen.getByText("Initial stable release")).toBeTruthy();
+
+    // Open Schema Viewer
+    fireEvent.click(screen.getByRole("button", { name: "View Schema" }));
+    const schemaModal = screen.getByRole("dialog", {
+      name: /Form Schema — v1/,
+    });
+    expect(schemaModal).toBeTruthy();
+    expect(
+      within(schemaModal).getByText(/Historical v1 Schema/),
+    ).toBeTruthy();
+
+    // Close Schema Viewer
+    fireEvent.click(within(schemaModal).getByRole("button", { name: "Close" }));
+    expect(
+      screen.queryByRole("dialog", { name: /Form Schema — v1/ }),
+    ).toBeNull();
+
+    // Navigate back to Design
+    fireEvent.click(screen.getByRole("button", { name: "Back to Design" }));
+    expect(screen.getByText("Form layout")).toBeTruthy();
+  });
 });
 
 it("contains no business-specific labels or direct Supabase imports in builder core", () => {

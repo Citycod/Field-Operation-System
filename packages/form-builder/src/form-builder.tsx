@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   validateDraftSchema,
+  validatePublishableSchema,
   type DetailsColumnDefinition,
   type FieldDefinition,
   type FieldType,
@@ -33,11 +34,21 @@ import {
 } from "./state";
 import type {
   BuilderDataSourceOption,
+  BuilderModuleTab,
   BuilderSelection,
   FormBuilderProps,
+  FormVersionSummary,
 } from "./types";
 
 const WIDTHS = ["full", "half", "third", "quarter"] as const;
+const MODULE_TABS: BuilderModuleTab[] = [
+  "Design",
+  "Form Settings",
+  "Workflow",
+  "Rules",
+  "List View",
+  "Versions",
+];
 
 function FieldGlyph({ type }: { type: FieldType }) {
   const glyphs: Record<FieldType, string> = {
@@ -120,11 +131,36 @@ export function FormBuilder({
   initialSchema,
   onChange,
   onSave,
+  onPublish,
+  versions,
+  onLoadVersions,
   createId = defaultId,
   dataSources,
   lookupProvider,
 }: FormBuilderProps) {
   const [schema, setSchema] = useState(() => cloneSchema(initialSchema));
+  const [activeModule, setActiveModule] = useState<BuilderModuleTab>("Design");
+  const [loadedVersions, setLoadedVersions] = useState<
+    readonly FormVersionSummary[]
+  >(versions ?? []);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [viewingVersionSchema, setViewingVersionSchema] =
+    useState<FormVersionSummary | null>(null);
+  const [copiedSchema, setCopiedSchema] = useState(false);
+
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [publishChangeNote, setPublishChangeNote] = useState("");
+  const [publishing, setPublishing] = useState(false);
+  const [publishValidation, setPublishValidation] = useState<ReturnType<
+    typeof validatePublishableSchema
+  > | null>(null);
+
+  useEffect(() => {
+    if (versions) {
+      setLoadedVersions(versions);
+    }
+  }, [versions]);
+
   const [selection, setSelection] = useState<BuilderSelection>({
     kind: "header",
   });
@@ -673,6 +709,87 @@ export function FormBuilder({
     }
   };
 
+  const openPublishDialog = () => {
+    rememberOverlayTrigger();
+    const result = validatePublishableSchema(schema, {
+      dataSources: dataSources?.map((ds) => ({
+        id: ds.id,
+        key: ds.key,
+        status: ds.status,
+        fields: ds.fields?.map((f) => ({ key: f.key })),
+      })),
+    });
+    setPublishValidation(result);
+    setPublishChangeNote("");
+    setPublishDialogOpen(true);
+  };
+
+  const closePublishDialog = () => {
+    setPublishDialogOpen(false);
+    restoreOverlayTrigger();
+  };
+
+  const confirmPublish = async () => {
+    if (!onPublish) return;
+    setPublishing(true);
+    try {
+      await onPublish(publishChangeNote.trim() || undefined);
+      setPublishDialogOpen(false);
+      setNotice("Form version published successfully.");
+      if (onLoadVersions) {
+        try {
+          const list = await onLoadVersions();
+          setLoadedVersions(list);
+        } catch {
+          // ignore background refresh failure
+        }
+      }
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? `Publish failed: ${error.message}`
+          : "Publish failed.",
+      );
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleSelectModule = async (item: BuilderModuleTab) => {
+    if (item === "Design" || item === "Versions") {
+      setActiveModule(item);
+      if (item === "Versions" && onLoadVersions) {
+        setLoadingVersions(true);
+        try {
+          const list = await onLoadVersions();
+          setLoadedVersions(list);
+        } catch (err) {
+          setNotice(
+            err instanceof Error
+              ? `Failed to load versions: ${err.message}`
+              : "Failed to load versions.",
+          );
+        } finally {
+          setLoadingVersions(false);
+        }
+      }
+    } else {
+      setNotice(`${item} belongs to a later implementation phase.`);
+    }
+  };
+
+  const handleCopySchema = async (jsonString: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(jsonString);
+      }
+      setCopiedSchema(true);
+      setTimeout(() => setCopiedSchema(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div className="fb-root">
       <header className="fb-commandbar">
@@ -693,26 +810,26 @@ export function FormBuilder({
           <button type="button" onClick={openPreview}>
             ▷ Preview
           </button>
+          {onPublish && (
+            <button
+              type="button"
+              className="fb-btn-publish"
+              onClick={openPublishDialog}
+              disabled={publishing}
+            >
+              Publish
+            </button>
+          )}
         </div>
       </header>
 
       <nav className="fb-topnav" aria-label="Builder modules">
-        {[
-          "Design",
-          "Form Settings",
-          "Workflow",
-          "Rules",
-          "List View",
-          "Versions",
-        ].map((item) => (
+        {MODULE_TABS.map((item) => (
           <button
             key={item}
             type="button"
-            aria-current={item === "Design" ? "page" : undefined}
-            onClick={() =>
-              item !== "Design" &&
-              setNotice(`${item} belongs to a later implementation phase.`)
-            }
+            aria-current={item === activeModule ? "page" : undefined}
+            onClick={() => void handleSelectModule(item)}
           >
             {item}
           </button>
@@ -737,7 +854,12 @@ export function FormBuilder({
         </div>
       )}
 
-      <section className="fb-mobile-state" aria-label="Mobile builder guidance">
+      {activeModule === "Design" && (
+        <>
+          <section
+            className="fb-mobile-state"
+            aria-label="Mobile builder guidance"
+          >
         <strong>
           Form Builder is optimized for desktop or tablet authoring.
         </strong>
@@ -989,6 +1111,124 @@ export function FormBuilder({
           )}
         </aside>
       </div>
+    </>
+  )}
+
+  {activeModule === "Versions" && (
+    <div className="fb-versions-view">
+      <div className="fb-versions-header">
+        <div>
+          <h2>Version History</h2>
+          <p>
+            Published versions are permanent and immutable. Previous submissions reference their creation version.
+          </p>
+        </div>
+        <div className="fb-versions-actions">
+          {onLoadVersions && (
+            <button
+              type="button"
+              onClick={async () => {
+                setLoadingVersions(true);
+                try {
+                  const list = await onLoadVersions();
+                  setLoadedVersions(list);
+                } catch (err) {
+                  setNotice(
+                    err instanceof Error
+                      ? `Failed to refresh versions: ${err.message}`
+                      : "Failed to refresh versions.",
+                  );
+                } finally {
+                  setLoadingVersions(false);
+                }
+              }}
+              disabled={loadingVersions}
+            >
+              {loadingVersions ? "Refreshing…" : "↻ Refresh"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="fb-primary"
+            onClick={() => setActiveModule("Design")}
+          >
+            Back to Design
+          </button>
+        </div>
+      </div>
+
+      {loadingVersions ? (
+        <div className="fb-versions-empty" role="status">
+          Loading version history…
+        </div>
+      ) : loadedVersions.length === 0 ? (
+        <div className="fb-versions-empty">
+          <p>No versions recorded yet for this form.</p>
+          <p className="fb-text-muted">
+            Once published, form versions and historical snapshots will appear here.
+          </p>
+        </div>
+      ) : (
+        <div className="fb-versions-table-container">
+          <table className="fb-versions-table">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>Status</th>
+                <th>Release Date</th>
+                <th>Author / Publisher</th>
+                <th>Change Note</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadedVersions.map((v) => (
+                <tr key={v.id}>
+                  <td className="fb-version-num">v{v.version_number}</td>
+                  <td>
+                    <span
+                      className={`fb-status-badge fb-status-${v.status}`}
+                    >
+                      {v.status}
+                    </span>
+                  </td>
+                  <td className="fb-version-date">
+                    {v.published_at
+                      ? new Date(v.published_at).toLocaleString()
+                      : v.created_at
+                        ? new Date(v.created_at).toLocaleString()
+                        : "—"}
+                  </td>
+                  <td className="fb-version-author">
+                    {v.published_by || v.created_by || "System"}
+                  </td>
+                  <td className="fb-version-note">
+                    {v.change_note ? (
+                      v.change_note
+                    ) : (
+                      <span className="fb-muted-dash">—</span>
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="fb-btn-schema"
+                      onClick={() => {
+                        rememberOverlayTrigger();
+                        setViewingVersionSchema(v);
+                      }}
+                    >
+                      View Schema
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )}
 
       {addTabOpen && (
         <div
@@ -1086,6 +1326,167 @@ export function FormBuilder({
               mode="preview"
               lookupProvider={lookupProvider ?? (async () => [])}
             />
+          </div>
+        </div>
+      )}
+
+      {publishDialogOpen && (
+        <div
+          className="fb-dialog-backdrop"
+          role="presentation"
+          onMouseDown={() => !publishing && closePublishDialog()}
+        >
+          <div
+            className="fb-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="publish-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              className="fb-dialog-close"
+              type="button"
+              aria-label="Close publish dialog"
+              disabled={publishing}
+              onClick={closePublishDialog}
+            >
+              ×
+            </button>
+            <h2 id="publish-dialog-title">Publish Form Version</h2>
+
+            {publishValidation && !publishValidation.valid ? (
+              <div className="fb-publish-blocked">
+                <div className="fb-validation" role="alert">
+                  <strong>Publishing blocked by validation errors</strong>
+                  <p>Please resolve these issues before publishing this form:</p>
+                  <ul>
+                    {publishValidation.errors.map((error, index) => (
+                      <li key={`${error.path}-${index}`}>
+                        {error.path ? <code>{error.path}</code> : null}{" "}
+                        {error.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="fb-dialog-actions" style={{ marginTop: 18 }}>
+                  <button
+                    type="button"
+                    className="fb-primary"
+                    onClick={closePublishDialog}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p>
+                  Publishing locks the current draft into a permanent, immutable
+                  release and makes it available for runtime form submissions.
+                </p>
+                <label className="fb-dialog-field">
+                  <span>Change Note (optional)</span>
+                  <textarea
+                    value={publishChangeNote}
+                    onChange={(event) =>
+                      setPublishChangeNote(event.target.value)
+                    }
+                    placeholder="Describe what changed in this version (e.g. Added emergency contact fields)"
+                    rows={3}
+                    disabled={publishing}
+                  />
+                </label>
+                <div className="fb-dialog-actions">
+                  <button
+                    type="button"
+                    disabled={publishing}
+                    onClick={closePublishDialog}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="fb-primary"
+                    disabled={publishing}
+                    onClick={confirmPublish}
+                  >
+                    {publishing ? "Publishing…" : "Confirm & Publish"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {viewingVersionSchema && (
+        <div
+          className="fb-dialog-backdrop"
+          role="presentation"
+          onMouseDown={() => {
+            setViewingVersionSchema(null);
+            restoreOverlayTrigger();
+          }}
+        >
+          <div
+            className="fb-dialog fb-dialog-schema"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schema-viewer-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              className="fb-dialog-close"
+              type="button"
+              aria-label="Close schema viewer"
+              onClick={() => {
+                setViewingVersionSchema(null);
+                restoreOverlayTrigger();
+              }}
+            >
+              ×
+            </button>
+            <h2 id="schema-viewer-title">
+              Form Schema — v{viewingVersionSchema.version_number} (
+              {viewingVersionSchema.status})
+            </h2>
+            <p>
+              Read-only immutable snapshot captured at{" "}
+              {viewingVersionSchema.published_at
+                ? new Date(viewingVersionSchema.published_at).toLocaleString()
+                : new Date(viewingVersionSchema.created_at).toLocaleString()}
+            </p>
+
+            <div className="fb-schema-body">
+              <pre className="fb-schema-code">
+                <code>
+                  {JSON.stringify(viewingVersionSchema.schema_jsonb, null, 2)}
+                </code>
+              </pre>
+            </div>
+
+            <div className="fb-dialog-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  void handleCopySchema(
+                    JSON.stringify(viewingVersionSchema.schema_jsonb, null, 2),
+                  )
+                }
+              >
+                {copiedSchema ? "Copied!" : "Copy JSON"}
+              </button>
+              <button
+                type="button"
+                className="fb-primary"
+                onClick={() => {
+                  setViewingVersionSchema(null);
+                  restoreOverlayTrigger();
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

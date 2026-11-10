@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import {
   FormBuilder,
   type BuilderDataSourceOption,
+  type FormVersionSummary,
 } from "@field/form-builder";
 import type { FormSchemaV1, OptionItem } from "@field/form-engine";
 import type { LookupProvider } from "@field/form-renderer";
@@ -28,6 +29,9 @@ export default function ProductionFormBuilderPage() {
   const [error, setError] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [versions, setVersions] = useState<FormVersionSummary[]>([]);
+  const [viewingSchema, setViewingSchema] =
+    useState<FormVersionSummary | null>(null);
   const loadedDraftContextRef = useRef<string | null>(null);
 
   const lookupProvider = useCallback<LookupProvider>(
@@ -107,6 +111,20 @@ export default function ProductionFormBuilderPage() {
           .catch(() => {
             // Non-blocking: draft authoring continues even if data sources fail to load
           });
+
+        fetch(
+          `/api/forms/${encodeURIComponent(formId)}/versions?organizationId=${encodeURIComponent(activeOrganizationId)}`,
+        )
+          .then(async (vRes) => {
+            if (!vRes.ok) return;
+            const vBody = (await vRes.json()) as {
+              versions?: FormVersionSummary[];
+            };
+            setVersions(vBody.versions ?? []);
+          })
+          .catch(() => {
+            // Non-blocking: version list will be retried on tab select
+          });
       } catch (reason) {
         loadedDraftContextRef.current = null;
         setError(
@@ -162,6 +180,26 @@ export default function ProductionFormBuilderPage() {
     }
   }
 
+  const loadVersions = useCallback(async (): Promise<FormVersionSummary[]> => {
+    if (!activeOrganizationId) return [];
+    try {
+      const response = await fetch(
+        `/api/forms/${encodeURIComponent(formId)}/versions?organizationId=${encodeURIComponent(activeOrganizationId)}`,
+      );
+      if (!response.ok) {
+        throw new Error("Failed to load form version history.");
+      }
+      const body = (await response.json()) as {
+        versions?: FormVersionSummary[];
+      };
+      const list = body.versions ?? [];
+      setVersions(list);
+      return list;
+    } catch {
+      return [];
+    }
+  }, [activeOrganizationId, formId]);
+
   async function saveDraft(schema: FormSchemaV1) {
     if (!activeOrganizationId || !data?.draft)
       throw new Error("No editable draft is available.");
@@ -183,6 +221,30 @@ export default function ProductionFormBuilderPage() {
     setData((current) =>
       current ? { ...current, draft: body.version } : current,
     );
+  }
+
+  async function publishDraft(changeNote?: string) {
+    if (!activeOrganizationId || !data?.draft)
+      throw new Error("No editable draft is available to publish.");
+    const response = await fetch(
+      `/api/forms/${encodeURIComponent(formId)}/publish`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationId: activeOrganizationId,
+          versionId: data.draft.id,
+          changeNote,
+        }),
+      },
+    );
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Publish failed.");
+    setHasUnsavedChanges(false);
+    await Promise.all([
+      loadDraft({ force: true }),
+      loadVersions(),
+    ]);
   }
 
   return (
@@ -221,25 +283,96 @@ export default function ProductionFormBuilderPage() {
       )}
 
       {state === "ready" && data && !data.draft && (
-        <div className="border border-slate-200 bg-white p-8 text-center">
-          <h1 className="text-lg font-bold">{data.form.title}</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            This form has no active draft. Create one from its latest published
-            version to continue editing.
-          </p>
-          {error && (
-            <p role="alert" className="mt-3 text-sm text-red-700">
-              {error}
+        <div className="space-y-4">
+          <div className="border border-slate-200 bg-white p-8 text-center">
+            <h1 className="text-lg font-bold">{data.form.title}</h1>
+            <p className="mt-2 text-sm text-slate-500">
+              This form has no active draft. Create one from its latest published
+              version to continue editing.
             </p>
+            {error && (
+              <p role="alert" className="mt-3 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={creatingDraft}
+              onClick={() => void createDraft()}
+              className="mt-4 rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {creatingDraft ? "Creating draft…" : "Create Draft from Published"}
+            </button>
+          </div>
+
+          {versions.length > 0 && (
+            <div className="border border-slate-200 bg-white p-6">
+              <h2 className="text-base font-bold text-slate-900">
+                Version History
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Published releases for this form. Published versions are permanent and immutable.
+              </p>
+              <div className="mt-4 overflow-x-auto border border-slate-200 rounded">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Version</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Release Date</th>
+                      <th className="p-3">Author</th>
+                      <th className="p-3">Change Note</th>
+                      <th className="p-3">Schema</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {versions.map((v) => (
+                      <tr key={v.id} className="hover:bg-slate-50">
+                        <td className="p-3 font-mono font-bold">
+                          v{v.version_number}
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              v.status === "published"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : v.status === "draft"
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {v.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-500">
+                          {v.published_at
+                            ? new Date(v.published_at).toLocaleString()
+                            : v.created_at
+                              ? new Date(v.created_at).toLocaleString()
+                              : "—"}
+                        </td>
+                        <td className="p-3 text-slate-500">
+                          {v.published_by || v.created_by || "System"}
+                        </td>
+                        <td className="p-3 text-slate-700">
+                          {v.change_note || "—"}
+                        </td>
+                        <td className="p-3">
+                          <button
+                            type="button"
+                            onClick={() => setViewingSchema(v)}
+                            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-100"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-          <button
-            type="button"
-            disabled={creatingDraft}
-            onClick={() => void createDraft()}
-            className="mt-4 rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
-          >
-            {creatingDraft ? "Creating draft…" : "Create Draft from Published"}
-          </button>
         </div>
       )}
 
@@ -251,7 +384,60 @@ export default function ProductionFormBuilderPage() {
           lookupProvider={lookupProvider}
           onChange={() => setHasUnsavedChanges(true)}
           onSave={saveDraft}
+          onPublish={publishDraft}
+          versions={versions}
+          onLoadVersions={loadVersions}
         />
+      )}
+
+      {viewingSchema && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-3xl rounded bg-white p-6 shadow-xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <h3 className="text-base font-bold text-slate-800">
+                Form Schema — v{viewingSchema.version_number} ({viewingSchema.status})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setViewingSchema(null)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+              >
+                ×
+              </button>
+            </div>
+            <div className="my-4 flex-1 overflow-auto rounded bg-slate-950 p-4 font-mono text-xs text-slate-200">
+              <pre>
+                <code>
+                  {JSON.stringify(viewingSchema.schema_jsonb, null, 2)}
+                </code>
+              </pre>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(
+                    JSON.stringify(viewingSchema.schema_jsonb, null, 2),
+                  );
+                }}
+                className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50"
+              >
+                Copy JSON
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingSchema(null)}
+                className="rounded bg-emerald-700 px-4 py-1.5 text-xs font-semibold text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

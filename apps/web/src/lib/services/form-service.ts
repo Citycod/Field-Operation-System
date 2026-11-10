@@ -113,6 +113,7 @@ export class FormService {
     organizationId: string;
     formId: string;
     versionId: string;
+    changeNote?: string;
   }) {
     await this.checkMembership(params.userId, params.organizationId);
 
@@ -131,7 +132,21 @@ export class FormService {
       versionId: params.versionId,
       organizationId: params.organizationId,
       userId: params.userId,
+      changeNote: params.changeNote,
     });
+  }
+
+  async listVersions(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+  }) {
+    await this.checkMembership(params.userId, params.organizationId);
+    const form = await this.formRepository.getFormById(params.formId, params.organizationId);
+    if (!form) {
+      throw new Error('Form not found or inaccessible in this organization.');
+    }
+    return this.formRepository.listVersions(params.formId, params.organizationId);
   }
 
   async createDraftFromPublished(params: {

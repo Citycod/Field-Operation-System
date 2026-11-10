@@ -33,15 +33,39 @@ export type BuilderSelection =
     }
   | { kind: "tab"; tabId: string };
 
+export interface FormVersionSummary {
+  id: string;
+  version_number: number;
+  status: "draft" | "published" | "archived";
+  schema_version: number;
+  schema_jsonb: FormSchemaV1;
+  change_note?: string | null;
+  created_at: string;
+  created_by?: string | null;
+  published_at?: string | null;
+  published_by?: string | null;
+}
+
+export type BuilderModuleTab =
+  | "Design"
+  | "Form Settings"
+  | "Workflow"
+  | "Rules"
+  | "List View"
+  | "Versions";
+
 export interface FormBuilderProps {
   initialSchema: FormSchemaV1;
   onChange?: (schema: FormSchemaV1) => void;
   onSave?: (schema: FormSchemaV1) => void | Promise<void>;
+  onPublish?: (changeNote?: string) => void | Promise<void>;
+  versions?: readonly FormVersionSummary[];
+  onLoadVersions?: () => Promise<readonly FormVersionSummary[]>;
   createId?: (prefix: string) => string;
   dataSources?: readonly BuilderDataSourceOption[];
   lookupProvider?: LookupProvider;
 }
 
 export interface BuilderValidation extends ValidationResult {
-  action: "preview" | "save";
+  action: "preview" | "save" | "publish";
 }
