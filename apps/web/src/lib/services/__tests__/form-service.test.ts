@@ -3,7 +3,7 @@ import { FormService } from '../form-service';
 import { FormRepository, FormEntity, FormVersionEntity } from '../../repositories/form-repository';
 import { MembershipRepository } from '../../repositories/membership-repository';
 import { OrganizationMembership, PlatformRole } from '@field/types';
-import { MINIMAL_VALID_SCHEMA } from '@field/form-engine';
+import { MINIMAL_VALID_SCHEMA, createDefaultFlowWorkflow, type FormSchemaV1 } from '@field/form-engine';
 
 class MockMembershipRepository implements MembershipRepository {
   private activeMemberships = new Map<
@@ -1041,6 +1041,157 @@ describe('FormService', () => {
           action: 'read_all_submissions',
         }),
       ).rejects.toThrow(/Form not found or inaccessible/);
+    });
+  });
+
+  describe('fail-closed workflow active-member publish validation', () => {
+    function buildWorkflowSchemaWithUser(userIdValue: string): FormSchemaV1 {
+      const base = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      const wf = createDefaultFlowWorkflow('Synthetic Workflow Form');
+      const appr = wf.steps.find((s) => s.type === 'approval');
+      if (appr && appr.type === 'approval') {
+        appr.assignees = [{ type: 'user', value: userIdValue }];
+      }
+      return { ...base, workflow: wf };
+    }
+
+    it('fails closed when roster lookup throws or returns empty/inactive/cross-tenant users for user-specific workflow assignees', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'synthetic_roster_check',
+        title: 'Synthetic Roster Check',
+      });
+
+      // 1. Default MockMembershipRepository returns [] -> empty roster MUST reject user-specific assignee
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema: buildWorkflowSchemaWithUser('user_invited'),
+      });
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+        }),
+      ).rejects.toThrow(/INVALID_WORKFLOW_ASSIGNEE/);
+
+      // 2. Roster throws exception -> MUST NOT swallow error or publish
+      const getRosterSpy = vi
+        .spyOn(membershipRepo, 'getRoster')
+        .mockRejectedValueOnce(new Error('RPC timeout'));
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+        }),
+      ).rejects.toThrow(/Failed to verify active organization members.*RPC timeout/);
+      expect(getRosterSpy).toHaveBeenCalledWith(orgA);
+
+      // 3. Roster contains invited/disabled and active orgB user -> still rejected for non-active orgA users
+      getRosterSpy.mockResolvedValue([
+        { user_id: 'user_invited', status: 'invited' },
+        { user_id: 'user_disabled', status: 'disabled' },
+        { user_id: 'user_active_a', status: 'active' },
+      ]);
+
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+        }),
+      ).rejects.toThrow(/INVALID_WORKFLOW_ASSIGNEE/);
+
+      // Cross-tenant userB rejected
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema: buildWorkflowSchemaWithUser(userB),
+      });
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+        }),
+      ).rejects.toThrow(/INVALID_WORKFLOW_ASSIGNEE/);
+
+      // Valid active user passes
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema: buildWorkflowSchemaWithUser('user_active_a'),
+      });
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('skips unnecessary roster lookups when workflow is null or role-only', async () => {
+      const getRosterSpy = vi
+        .spyOn(membershipRepo, 'getRoster')
+        .mockRejectedValue(new Error('Should not be called without user assignees'));
+
+      const noWfForm = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'synthetic_no_wf',
+        title: 'Synthetic No Workflow',
+      });
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: noWfForm.form.id,
+          versionId: noWfForm.version.id,
+        }),
+      ).resolves.toBeUndefined();
+
+      const roleOnlyForm = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'synthetic_role_wf',
+        title: 'Synthetic Role Workflow',
+      });
+      const roleSchema: FormSchemaV1 = {
+        ...(structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1),
+        workflow: createDefaultFlowWorkflow('Synthetic Role Workflow'),
+      };
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: roleOnlyForm.form.id,
+        versionId: roleOnlyForm.version.id,
+        schema: roleSchema,
+      });
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: roleOnlyForm.form.id,
+          versionId: roleOnlyForm.version.id,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(getRosterSpy).not.toHaveBeenCalled();
     });
   });
 

@@ -5,6 +5,7 @@ import { validateStructure } from './structure-validator';
 import { validateFormSettings, validateFormPermissions } from './settings-permissions-validator';
 import { validateRulesSemantic, validateCalculationsSemantic } from './rules-validator';
 import { validateListViewSemantic } from './list-view-validator';
+import { validateWorkflowSemantic } from './workflow-validator';
 
 const VALID_FIELD_TYPES = ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'lookup', 'file', 'calculated'] as const;
 const VALID_TAB_TYPES = ['form', 'details', 'notes', 'documents'] as const;
@@ -244,6 +245,13 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
   // List View semantic validation (draft mode allows WIP references)
   if (s.listView !== undefined) {
     errors.push(...validateListViewSemantic(s.listView, fieldIds, fieldKeys, false));
+  }
+
+  // Workflow semantic validation (draft mode allows incomplete steps/refs as warnings)
+  if (s.workflow !== undefined && s.workflow !== null) {
+    const wfReport = validateWorkflowSemantic(s.workflow, collectedFields, fieldIds, fieldKeys, false);
+    errors.push(...wfReport.errors);
+    warnings.push(...wfReport.warnings);
   }
 
   return {

@@ -5,6 +5,7 @@ import { validateDraftSchema } from './draft-validator';
 import { ValidationResult } from './types';
 import { validateRulesSemantic, validateCalculationsSemantic } from './rules-validator';
 import { validateListViewSemantic } from './list-view-validator';
+import { validateWorkflowSemantic } from './workflow-validator';
 
 export interface PublishDataSourceSnapshot {
   id?: string;
@@ -15,6 +16,7 @@ export interface PublishDataSourceSnapshot {
 
 export interface PublishValidationContext {
   dataSources?: readonly PublishDataSourceSnapshot[];
+  activeMemberUserIds?: Set<string>;
 }
 
 export function validatePublishableSchema(
@@ -97,24 +99,23 @@ export function validatePublishableSchema(
       result.errors.push(err);
     }
   }
-  if (s.workflow) {
-    if (s.workflow.type !== 'sequential') fail('workflow.type', 'INVALID_WORKFLOW_TYPE', 'Only sequential approval is supported');
-    if (!s.workflow.stages.length) fail('workflow.stages', 'INVALID_WORKFLOW_STAGE', 'A configured workflow needs at least one stage');
-    const orders = new Set<number>();
-    const stageIds = new Set<string>();
-    const stageKeys = new Set<string>();
-    s.workflow.stages.forEach((stage, i) => {
-      const path = `workflow.stages[${i}]`;
-      if (typeof stage.name !== 'string' || !stage.name.trim() || !stage.id || !stage.key || stageIds.has(stage.id) || stageKeys.has(stage.key)) fail(path, 'INVALID_WORKFLOW_STAGE', 'Stage needs a name and unique identity');
-      stageIds.add(stage.id); stageKeys.add(stage.key);
-      // Existing fixtures and contracts use zero-based consecutive orders.
-      if (!Number.isInteger(stage.order) || stage.order < 0 || stage.order >= s.workflow!.stages.length || orders.has(stage.order)) fail(`${path}.order`, 'INVALID_WORKFLOW_ORDER', 'Stage orders must be unique consecutive integers starting at zero');
-      orders.add(stage.order);
-      if (!['user', 'role', 'departmentRole', 'managerOfRequester'].includes(stage.approverType) ||
-          (stage.approverType !== 'managerOfRequester' && (typeof stage.approverValue !== 'string' || !stage.approverValue.trim()))) {
-        fail(`${path}.approverType`, 'INVALID_WORKFLOW_APPROVER', 'Select a supported approver type and its user/role value');
+  if (s.workflow !== undefined && s.workflow !== null) {
+    const wfReport = validateWorkflowSemantic(
+      s.workflow,
+      fields,
+      ids,
+      keys,
+      true,
+      { activeMemberUserIds: context?.activeMemberUserIds },
+    );
+    for (const err of wfReport.errors) {
+      if (!result.errors.some(e => e.path === err.path && e.code === err.code && e.message === err.message)) {
+        result.errors.push(err);
       }
-    });
+    }
+    for (const warn of wfReport.warnings) {
+      result.warnings.push(warn);
+    }
   }
   result.valid = result.errors.length === 0;
   return result;

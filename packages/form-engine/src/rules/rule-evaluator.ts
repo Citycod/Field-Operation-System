@@ -163,6 +163,60 @@ function resolveFieldValue(
 }
 
 /**
+ * Builds ID <-> Key lookup maps for a set of field definitions.
+ */
+function buildFieldIndexMaps(fields: readonly FieldDefinition[] = []) {
+  const idToKey = new Map<string, string>();
+  const keyToId = new Map<string, string>();
+  for (const f of fields) {
+    if (f.id && f.key) {
+      idToKey.set(f.id, f.key);
+      keyToId.set(f.key, f.id);
+    }
+  }
+  return { idToKey, keyToId };
+}
+
+/**
+ * Evaluates a group of declarative conditions using AND/OR logic.
+ * Shared across Form Rules, Workflow Trigger Conditions, Workflow Condition Steps, and Workflow Simulator.
+ */
+export function evaluateConditionGroup(
+  conditions: readonly RuleCondition[] | undefined | null,
+  logic: 'AND' | 'OR' = 'AND',
+  formValues: Record<string, unknown> = {},
+  fields: readonly FieldDefinition[] = [],
+  emptyBehavior: 'match' | 'no_match' = 'no_match',
+): boolean {
+  const list = Array.isArray(conditions) ? conditions : [];
+  if (list.length === 0) {
+    return emptyBehavior === 'match';
+  }
+
+  const { idToKey, keyToId } = buildFieldIndexMaps(fields);
+
+  if (logic === 'OR') {
+    for (const cond of list) {
+      if (!cond || typeof cond !== 'object') continue;
+      const curVal = resolveFieldValue(cond.fieldId, formValues, idToKey, keyToId);
+      if (evaluateCondition(curVal, cond.operator, cond.value)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  for (const cond of list) {
+    if (!cond || typeof cond !== 'object') return false;
+    const curVal = resolveFieldValue(cond.fieldId, formValues, idToKey, keyToId);
+    if (!evaluateCondition(curVal, cond.operator, cond.value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Evaluates all declarative rules against current form values and field definitions.
  *
  * Deterministic Precedence Strategy:
@@ -192,14 +246,7 @@ export function evaluateRules(
   }
 
   // Build field index maps for ID <-> Key resolution
-  const idToKey = new Map<string, string>();
-  const keyToId = new Map<string, string>();
-  for (const f of fields) {
-    if (f.id && f.key) {
-      idToKey.set(f.id, f.key);
-      keyToId.set(f.key, f.id);
-    }
-  }
+  const { idToKey, keyToId } = buildFieldIndexMaps(fields);
 
   // Helper to apply field effect to both ID and Key slots
   function setFieldEffect(targetRef: string, patch: Partial<FieldRuleState>) {
@@ -230,34 +277,7 @@ export function evaluateRules(
     if (conditions.length === 0) continue;
 
     const logic = rule.conditionLogic || (rule.match === 'any' ? 'OR' : 'AND');
-
-    let ruleMatches = logic === 'AND'; // For AND start true; for OR start false
-
-    if (logic === 'OR') {
-      ruleMatches = false;
-      for (const cond of conditions) {
-        if (!cond || typeof cond !== 'object') continue;
-        const curVal = resolveFieldValue(cond.fieldId, formValues, idToKey, keyToId);
-        if (evaluateCondition(curVal, cond.operator, cond.value)) {
-          ruleMatches = true;
-          break;
-        }
-      }
-    } else {
-      // AND logic
-      ruleMatches = true;
-      for (const cond of conditions) {
-        if (!cond || typeof cond !== 'object') {
-          ruleMatches = false;
-          break;
-        }
-        const curVal = resolveFieldValue(cond.fieldId, formValues, idToKey, keyToId);
-        if (!evaluateCondition(curVal, cond.operator, cond.value)) {
-          ruleMatches = false;
-          break;
-        }
-      }
-    }
+    const ruleMatches = evaluateConditionGroup(conditions, logic, formValues, fields, 'no_match');
 
     if (ruleMatches) {
       result.appliedRuleIds.push(rule.id || `rule_${rIdx}`);

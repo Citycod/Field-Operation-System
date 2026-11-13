@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import {
   FormBuilder,
   type BuilderDataSourceOption,
+  type BuilderMemberOption,
   type FormVersionSummary,
 } from "@field/form-builder";
 import type { FormSchemaV1, OptionItem } from "@field/form-engine";
@@ -25,6 +26,7 @@ export default function ProductionFormBuilderPage() {
   const activeOrganizationId = activeOrganization?.id ?? null;
   const [data, setData] = useState<FormDraftResponse | null>(null);
   const [dataSources, setDataSources] = useState<BuilderDataSourceOption[]>([]);
+  const [organizationMembers, setOrganizationMembers] = useState<BuilderMemberOption[]>([]);
   const [state, setState] = useState<LoadState>("loading");
   const [error, setError] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
@@ -126,6 +128,40 @@ export default function ProductionFormBuilderPage() {
           })
           .catch(() => {
             // Non-blocking: version list will be retried on tab select
+          });
+
+        fetch(
+          `/api/organizations/${encodeURIComponent(activeOrganizationId)}/members`,
+        )
+          .then(async (mRes) => {
+            if (!mRes.ok) return;
+            const mBody = (await mRes.json()) as {
+              members?: Array<{
+                user_id: string;
+                role_key: string;
+                status: string;
+                display_name?: string | null;
+                first_name?: string | null;
+                last_name?: string | null;
+                email?: string | null;
+              }>;
+            };
+            const active = (mBody.members ?? [])
+              .filter((m) => m.status === "active")
+              .map((m) => ({
+                userId: m.user_id,
+                roleKey: m.role_key,
+                email: m.email,
+                displayName:
+                  m.display_name ||
+                  [m.first_name, m.last_name].filter(Boolean).join(" ") ||
+                  m.email ||
+                  m.user_id,
+              }));
+            setOrganizationMembers(active);
+          })
+          .catch(() => {
+            // Non-blocking: user picker falls back to role/deferred assignments
           });
       } catch (reason) {
         loadedDraftContextRef.current = null;
@@ -408,6 +444,7 @@ export default function ProductionFormBuilderPage() {
           key={data.draft.id}
           initialSchema={data.draft.schema_jsonb as FormSchemaV1}
           dataSources={dataSources}
+          organizationMembers={organizationMembers}
           lookupProvider={lookupProvider}
           onChange={(nextSchema) => {
             latestSchemaRef.current = nextSchema;

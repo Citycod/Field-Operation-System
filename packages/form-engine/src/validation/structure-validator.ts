@@ -1,4 +1,5 @@
 import { ValidationError } from './types';
+import { validateWorkflowStructure } from './workflow-validator';
 
 type RecordValue = Record<string, unknown>;
 const object = (value: unknown): value is RecordValue =>
@@ -115,8 +116,8 @@ export function validateStructure(value: unknown): ValidationError[] {
       if (!object(action) || !text(action.targetFieldId) || !['show', 'hide', 'require', 'enable', 'disable', 'setValue'].includes(String(action.action))) fail(`${p}.actions[${j}]`, 'INVALID_RULE_CONFIG');
     });
   });
-  if (value.workflow !== null && record(value.workflow, 'workflow', 'INVALID_WORKFLOW_STAGE')) {
-    if (array(value.workflow.stages, 'workflow.stages', 'INVALID_WORKFLOW_STAGE')) value.workflow.stages.forEach((stage, i) => record(stage, `workflow.stages[${i}]`, 'INVALID_WORKFLOW_STAGE'));
+  if (value.workflow !== null && value.workflow !== undefined) {
+    errors.push(...validateWorkflowStructure(value.workflow));
   }
   if (record(value.listView, 'listView', 'INVALID_LIST_VIEW_CONFIG')) {
     if (array(value.listView.columns, 'listView.columns', 'INVALID_LIST_VIEW_CONFIG')) value.listView.columns.forEach((column, i) => {

@@ -1,7 +1,12 @@
 import { FormRepository, FormEntity, FormVersionEntity } from '../repositories/form-repository';
 import { MembershipRepository } from '../repositories/membership-repository';
-import { validateDraftSchema, validatePublishableSchema, FormSchemaV1 } from '@field/form-engine';
-import { OrganizationMembership } from '@field/types';
+import {
+  validateDraftSchema,
+  validatePublishableSchema,
+  workflowHasUserAssignees,
+  FormSchemaV1,
+} from '@field/form-engine';
+import { OrganizationMembership, OrganizationMemberRosterItem } from '@field/types';
 
 export type FormAction =
   | 'manage_form'
@@ -274,7 +279,44 @@ export class FormService {
       throw new Error('Specified version is not the active draft for this form.');
     }
 
-    const publishValidation = validatePublishableSchema(draft.schema_jsonb);
+    let activeMemberUserIds: Set<string> | undefined;
+    if (workflowHasUserAssignees(draft.schema_jsonb?.workflow)) {
+      let roster: OrganizationMemberRosterItem[];
+      try {
+        roster = await this.membershipRepository.getRoster(params.organizationId);
+      } catch (err) {
+        const reason =
+          err instanceof Error && err.message
+            ? err.message
+            : 'Unable to retrieve organization member roster';
+        throw new Error(
+          `Cannot publish: Failed to verify active organization members (${reason}).`,
+        );
+      }
+
+      if (!Array.isArray(roster)) {
+        throw new Error(
+          'Cannot publish: Failed to verify active organization members (invalid roster response).',
+        );
+      }
+
+      // Explicitly pass the active Set (even when empty) so workflow validation fails closed.
+      activeMemberUserIds = new Set(
+        roster
+          .filter(
+            (m) =>
+              m &&
+              m.status === 'active' &&
+              typeof m.user_id === 'string' &&
+              m.user_id.trim().length > 0,
+          )
+          .map((m) => m.user_id),
+      );
+    }
+
+    const publishValidation = validatePublishableSchema(draft.schema_jsonb, {
+      activeMemberUserIds,
+    });
     if (!publishValidation.valid) {
       throw new Error(`Cannot publish: Schema has semantic errors: ${JSON.stringify(publishValidation.errors)}`);
     }

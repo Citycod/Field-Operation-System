@@ -2,6 +2,7 @@ export * from './schema';
 export * from './validation';
 export * from './fixtures';
 export * from './rules';
+export * from './workflow';
 
 export function getFormEngineStatus() {
   return {

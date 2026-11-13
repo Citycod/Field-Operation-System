@@ -42,6 +42,7 @@ import type {
 import { FormSettingsEditor } from "./form-settings-editor";
 import { RulesEditor } from "./rules-editor";
 import { ListViewEditor } from "./list-view-editor";
+import { WorkflowEditor } from "./workflow-editor";
 
 const WIDTHS = ["full", "half", "third", "quarter"] as const;
 const MODULE_TABS: BuilderModuleTab[] = [
@@ -139,6 +140,7 @@ export function FormBuilder({
   onLoadVersions,
   createId = defaultId,
   dataSources,
+  organizationMembers,
   lookupProvider,
 }: FormBuilderProps) {
   const [schema, setSchema] = useState(() => cloneSchema(initialSchema));
@@ -722,6 +724,9 @@ export function FormBuilder({
         status: ds.status,
         fields: ds.fields?.map((f) => ({ key: f.key })),
       })),
+      activeMemberUserIds: organizationMembers?.length
+        ? new Set(organizationMembers.map((m) => m.userId))
+        : undefined,
     });
     setPublishValidation(result);
     setPublishChangeNote("");
@@ -764,6 +769,7 @@ export function FormBuilder({
       item === "Design" ||
       item === "Versions" ||
       item === "Form Settings" ||
+      item === "Workflow" ||
       item === "Rules" ||
       item === "List View"
     ) {
@@ -1128,6 +1134,18 @@ export function FormBuilder({
     <FormSettingsEditor
       schema={schema}
       disabled={publishing || saving}
+      onChange={(nextSchema) => {
+        setSchema(nextSchema);
+        onChange?.(nextSchema);
+      }}
+    />
+  )}
+
+  {activeModule === "Workflow" && (
+    <WorkflowEditor
+      schema={schema}
+      disabled={publishing || saving}
+      organizationMembers={organizationMembers}
       onChange={(nextSchema) => {
         setSchema(nextSchema);
         onChange?.(nextSchema);

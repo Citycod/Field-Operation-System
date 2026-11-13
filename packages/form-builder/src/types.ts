@@ -16,6 +16,13 @@ export interface BuilderDataSourceOption {
   fields?: readonly BuilderDataSourceFieldOption[];
 }
 
+export interface BuilderMemberOption {
+  userId: string;
+  displayName: string;
+  email?: string | null;
+  roleKey: string;
+}
+
 export type BuilderSelection =
   | { kind: "header" }
   | {
@@ -66,6 +73,7 @@ export interface FormBuilderProps {
   onLoadVersions?: () => Promise<readonly FormVersionSummary[]>;
   createId?: (prefix: string) => string;
   dataSources?: readonly BuilderDataSourceOption[];
+  organizationMembers?: readonly BuilderMemberOption[];
   lookupProvider?: LookupProvider;
 }
 
