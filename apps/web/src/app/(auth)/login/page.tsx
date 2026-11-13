@@ -1,6 +1,6 @@
 "use client";
 
-import React, { FormEvent, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import { Button, Input } from "@field/ui";
 import { SupabaseAuthService } from "@/lib/auth/supabase-auth-service";
 import { safePostLoginPath } from "@/lib/auth/route-policy";
@@ -10,6 +10,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (err === "verification_failed") {
+      setError("Email verification link is invalid or has expired. Please sign in or register again.");
+    } else if (err === "missing_code") {
+      setError("Verification code is missing from the link. Please check your verification email.");
+    }
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -97,8 +107,14 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="pt-2 text-center text-[11px] text-slate-400 border-t border-slate-200 dark:border-slate-800">
-          Powered by Supabase Auth & Multi-Tenancy
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center text-xs text-slate-500">
+          Need a workspace for your team?{" "}
+          <a
+            href="/business/signup"
+            className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
+          >
+            Set up a business workspace
+          </a>
         </div>
       </div>
     </div>

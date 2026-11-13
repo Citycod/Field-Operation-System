@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isProtectedPage, isPublicPage, safePostLoginPath } from '../route-policy';
+import { isBusinessSignupPage, isProtectedPage, isPublicPage, safePostLoginPath } from '../route-policy';
 
 describe('authentication route policy', () => {
   it('keeps only the login page public', () => {
@@ -13,6 +13,13 @@ describe('authentication route policy', () => {
     expect(isProtectedPage('/administration')).toBe(true);
   });
 
+  it('allows public and authenticated access to business signup without requiring login', () => {
+    expect(isBusinessSignupPage('/business/signup')).toBe(true);
+    expect(isProtectedPage('/business/signup')).toBe(false);
+    expect(isPublicPage('/business/signup')).toBe(false);
+    expect(isProtectedPage('/auth/callback')).toBe(false);
+  });
+
   it('leaves API authorization to API handlers and dev fixtures outside production policy', () => {
     expect(isProtectedPage('/api/forms')).toBe(false);
     expect(isProtectedPage('/dev/form-builder')).toBe(false);
@@ -22,6 +29,10 @@ describe('authentication route policy', () => {
     expect(safePostLoginPath('/forms/form-1/builder?mode=preview')).toBe(
       '/forms/form-1/builder?mode=preview',
     );
+  });
+
+  it('accepts business signup as post-login destination', () => {
+    expect(safePostLoginPath('/business/signup')).toBe('/business/signup');
   });
 
   it('rejects external, protocol-relative, public, and malformed next paths', () => {

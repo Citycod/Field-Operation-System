@@ -13,11 +13,27 @@ export interface AuthResult {
   error: Error | null;
 }
 
+export interface SignUpResult {
+  user: AuthUser | null;
+  session: AuthSession | null;
+  error: Error | null;
+  requiresEmailVerification?: boolean;
+}
+
 export interface AuthService {
   /**
    * Signs in a user with work email and password.
    */
   signInWithEmail(email: string, password: string): Promise<AuthResult>;
+
+  /**
+   * Registers a new user account with email and password.
+   */
+  signUpWithEmail(
+    email: string,
+    password: string,
+    options?: { firstName?: string; lastName?: string; emailRedirectTo?: string },
+  ): Promise<SignUpResult>;
 
   /**
    * Signs out the currently authenticated user session.

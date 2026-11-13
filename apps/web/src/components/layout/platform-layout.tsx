@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
   Building2,
+  AlertCircle,
   Loader2,
   LogOut,
   Menu,
@@ -13,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Badge, Button } from "@field/ui";
+import type { OrganizationProfile } from "@field/types";
 import { Sidebar } from "../navigation/sidebar";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -33,8 +35,64 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [orgProfile, setOrgProfile] = useState<OrganizationProfile | null>(null);
+  const [isResolvingLegacy, setIsResolvingLegacy] = useState(false);
+  const [legacyBannerDismissed, setLegacyBannerDismissed] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!activeOrganization) {
+      setOrgProfile(null);
+      return;
+    }
+
+    let isMounted = true;
+    async function fetchOrgProfile() {
+      try {
+        const res = await fetch(`/api/organizations/${activeOrganization?.id}`);
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          if (data.profile) {
+            setOrgProfile(data.profile);
+            if (
+              data.profile.requires_onboarding &&
+              !data.profile.onboarding_completed &&
+              pathname !== "/business/onboarding"
+            ) {
+              router.replace("/business/onboarding");
+            }
+          }
+        }
+      } catch {
+        // Silently ignore network errors in platform layout
+      }
+    }
+
+    void fetchOrgProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeOrganization, pathname, router]);
+
+  async function handleResolveLegacy() {
+    if (!activeOrganization) return;
+    setIsResolvingLegacy(true);
+    try {
+      const res = await fetch(
+        `/api/organizations/${activeOrganization.id}/profile/resolve-legacy`,
+        { method: "POST" },
+      );
+      if (res.ok) {
+        setOrgProfile((prev) => (prev ? { ...prev, onboarding_status: "completed" } : null));
+        setLegacyBannerDismissed(true);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setIsResolvingLegacy(false);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -134,7 +192,9 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
       <AccessState
         icon={<Building2 className="h-5 w-5" />}
         title="Organization access is required"
-        description="Your account is signed in, but it has no active organization membership. Ask an administrator to add or enable your membership."
+        description="Your account is signed in, but it has no active organization membership. You can create a new business workspace or ask an administrator to add your account."
+        primaryLabel="Create a Business Workspace"
+        onPrimary={() => router.push("/business/signup")}
         onLogout={() => void handleLogout()}
         isLoggingOut={isLoggingOut}
         logoutError={logoutError}
@@ -276,6 +336,47 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
             {logoutError}
           </div>
         )}
+
+        {/* Non-blocking Administrative Banner for Legacy Workspaces */}
+        {orgProfile &&
+          !orgProfile.requires_onboarding &&
+          orgProfile.onboarding_status === "legacy_unresolved" &&
+          !legacyBannerDismissed &&
+          (currentRole === "business_admin" || currentRole === "super_admin") && (
+            <div
+              role="status"
+              className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
+            >
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>
+                  <strong>Legacy Workspace:</strong> This organization profile was migrated from an earlier version.
+                </span>
+              </div>
+              <div className="flex items-center space-x-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isResolvingLegacy}
+                  onClick={() => void handleResolveLegacy()}
+                  className="h-7 border-amber-300 bg-white px-2.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-slate-900 dark:text-amber-200"
+                >
+                  {isResolvingLegacy ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : null}
+                  Resolve & Dismiss
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setLegacyBannerDismissed(true)}
+                  aria-label="Dismiss banner"
+                  className="text-amber-700 hover:text-amber-900 dark:text-amber-400"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
         <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-slate-50 p-3 sm:p-4 lg:p-6 dark:bg-slate-950">
           {children}

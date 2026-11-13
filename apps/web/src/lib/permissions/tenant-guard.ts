@@ -2,8 +2,8 @@ import { OrganizationMembership } from '@field/types';
 import { getCurrentUser, getUserMemberships } from '@/lib/supabase/auth';
 
 export class UnauthorizedTenantAccessError extends Error {
-  constructor(userId: string, organizationId: string) {
-    super(`User '${userId}' is not a valid active member of organization '${organizationId}'`);
+  constructor(userId: string, organizationId: string, details?: string) {
+    super(details ?? `User '${userId}' is not a valid active member of organization '${organizationId}'`);
     this.name = 'UnauthorizedTenantAccessError';
   }
 }
@@ -23,12 +23,24 @@ export interface TenantContext {
 
 /**
  * Pure validation helper for verifying user membership in target organization.
+ * Ordinary tenant access requires:
+ * 1. Target organization is active (if organization status is provided).
+ * 2. User has an active membership in the target organization.
  */
 export function validateOrganizationMembership(
   userId: string,
   targetOrganizationId: string,
-  memberships: OrganizationMembership[]
+  memberships: OrganizationMembership[],
+  organizationStatus?: 'active' | 'suspended' | 'archived',
 ): TenantContext {
+  if (organizationStatus && organizationStatus !== 'active') {
+    throw new UnauthorizedTenantAccessError(
+      userId,
+      targetOrganizationId,
+      `Organization '${targetOrganizationId}' is ${organizationStatus}: ordinary tenant operations are restricted`,
+    );
+  }
+
   const matchingMembership = memberships.find(
     (m) =>
       m.user_id === userId &&

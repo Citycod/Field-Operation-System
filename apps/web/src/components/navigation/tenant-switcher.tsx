@@ -1,13 +1,26 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-context";
 import { Building2, ChevronDown } from "lucide-react";
 
 export function TenantSwitcher() {
+  const router = useRouter();
   const { activeOrganization, organizations, setActiveOrganization } =
     useAuth();
   const [isOpen, setIsOpen] = React.useState(false);
+
+  const handleSelectOrg = (org: typeof organizations[number]) => {
+    if (org.id !== activeOrganization?.id) {
+      setActiveOrganization(org);
+      setIsOpen(false);
+      router.push('/dashboard');
+      router.refresh();
+    } else {
+      setIsOpen(false);
+    }
+  };
 
   return (
     <div className="relative">
@@ -43,10 +56,7 @@ export function TenantSwitcher() {
               role="option"
               aria-selected={org.id === activeOrganization?.id}
               key={org.id}
-              onClick={() => {
-                setActiveOrganization(org);
-                setIsOpen(false);
-              }}
+              onClick={() => handleSelectOrg(org)}
               className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors ${
                 org.id === activeOrganization?.id
                   ? "bg-emerald-950/60 text-emerald-300 font-semibold"

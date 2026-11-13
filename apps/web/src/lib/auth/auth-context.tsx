@@ -24,7 +24,7 @@ interface AuthContextType extends AuthState {
   tenantStatus: TenantResolutionStatus;
   tenantError: string | null;
   setActiveOrganization: (org: Organization) => void;
-  reload: () => Promise<void>;
+  reload: (preferredOrgId?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -245,7 +245,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const reload = useCallback(() => loadAuth({ background: false }), [loadAuth]);
+  const reload = useCallback(
+    (preferredOrgId?: string) => {
+      if (preferredOrgId) {
+        writeStoredOrganizationId(preferredOrgId);
+      }
+      return loadAuth({ background: false });
+    },
+    [loadAuth],
+  );
 
   const logout = async () => {
     setIsLoading(true);
