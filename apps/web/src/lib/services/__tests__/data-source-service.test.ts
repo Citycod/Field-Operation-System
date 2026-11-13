@@ -56,6 +56,14 @@ class MockMembershipRepository implements MembershipRepository {
       updated_at: new Date().toISOString(),
     };
   }
+
+  async getRoster(): Promise<any> {
+    return [];
+  }
+
+  async manageMembership(): Promise<any> {
+    return { success: true };
+  }
 }
 
 class InMemoryDataSourceRepository implements DataSourceRepository {

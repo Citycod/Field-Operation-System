@@ -201,22 +201,12 @@ export class SupabaseFormRepository implements FormRepository {
   }): Promise<void> {
     const supabase = this.client();
 
-    if (params.changeNote) {
-      await supabase
-        .from('form_versions')
-        .update({ change_note: params.changeNote })
-        .eq('id', params.versionId)
-        .eq('form_id', params.formId)
-        .eq('organization_id', params.organizationId)
-        .eq('status', 'draft');
-    }
-    
-    // Call atomic RPC — published_by is derived from auth.uid() inside the
-    // DB function, not from the caller-supplied userId. The userId param is
-    // kept in the interface for application-layer authorization only.
+    // Call atomic RPC — published_by is derived from auth.uid() and change_note is
+    // updated within the same transaction inside the DB function.
     const { error } = await supabase.rpc('publish_form_version', {
       p_form_id: params.formId,
       p_version_id: params.versionId,
+      p_change_note: params.changeNote ?? null,
     });
 
     if (error) {

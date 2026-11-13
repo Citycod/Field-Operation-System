@@ -7,16 +7,19 @@ import React, {
   type CSSProperties,
 } from "react";
 import { Button } from "@field/ui";
-import type {
-  FieldDefinition,
-  FormSchemaV1,
-  FormSectionDefinition,
-  HeaderSectionDefinition,
-  OptionItem,
+import {
+  evaluateRules,
+  evaluateCalculations,
+  type FieldDefinition,
+  type FormSchemaV1,
+  type FormSectionDefinition,
+  type HeaderSectionDefinition,
+  type OptionItem,
 } from "@field/form-engine";
 import type { FormRendererProps, RendererValue, ValueError } from "./types";
 import {
   allFields,
+  columnField,
   initialValue,
   inspectSchema,
   ordered,
@@ -59,11 +62,84 @@ function ValidForm({
     () => props.initialValue ?? defaults,
   );
   const supplied = props.value ?? local;
-  const value: RendererValue = {
+  const rawValue: RendererValue = {
     ...defaults,
     ...supplied,
     fields: { ...defaults.fields, ...supplied.fields },
   };
+
+  const allSchemaFields = useMemo(
+    () => [
+      ...allFields(schema),
+      ...schema.tabs.flatMap((t) =>
+        t.type === "details" ? t.configuration.columns.map(columnField) : [],
+      ),
+    ],
+    [schema],
+  );
+
+  // 1. Evaluate calculations in topological order
+  const calcResult = useMemo(
+    () => {
+      const detailsRowValues: Record<string, Array<Record<string, unknown>>> = {};
+      if (rawValue.details) {
+        for (const [tabKey, rows] of Object.entries(rawValue.details)) {
+          if (Array.isArray(rows)) {
+            detailsRowValues[tabKey] = rows.map((r) => r.values);
+          }
+        }
+      }
+      return evaluateCalculations(
+        allSchemaFields,
+        rawValue.fields,
+        detailsRowValues,
+      );
+    },
+    [allSchemaFields, rawValue.fields, rawValue.details],
+  );
+
+  const valueWithCalc: RendererValue = useMemo(() => {
+    if (Object.keys(calcResult.values).length === 0) return rawValue;
+    const merged = { ...rawValue.fields };
+    for (const [k, v] of Object.entries(calcResult.values)) {
+      if (v !== null && v !== undefined) {
+        merged[k] = v;
+      }
+    }
+    return { ...rawValue, fields: merged };
+  }, [rawValue, calcResult.values]);
+
+  // 2. Evaluate declarative rules
+  const ruleEffects = useMemo(
+    () =>
+      evaluateRules(
+        schema.rules,
+        valueWithCalc.fields,
+        allSchemaFields,
+      ),
+    [schema.rules, valueWithCalc.fields, allSchemaFields],
+  );
+
+  // 3. Apply setValue actions
+  const value: RendererValue = useMemo(() => {
+    let hasOverride = false;
+    const finalFields = { ...valueWithCalc.fields };
+    for (const f of allSchemaFields) {
+      const effect =
+        ruleEffects.fieldStates[f.id] || ruleEffects.fieldStates[f.key];
+      if (
+        effect?.setValue !== undefined &&
+        finalFields[f.key] !== effect.setValue
+      ) {
+        finalFields[f.key] = effect.setValue as import("./types").FieldValue;
+        hasOverride = true;
+      }
+    }
+    return hasOverride
+      ? { ...valueWithCalc, fields: finalFields }
+      : valueWithCalc;
+  }, [valueWithCalc, allSchemaFields, ruleEffects.fieldStates]);
+
   const tabs = ordered(schema.tabs);
   const [active, setActive] = useState(tabs[0]?.id);
   const [errors, setErrors] = useState<ValueError[]>([]);
@@ -101,23 +177,43 @@ function ValidForm({
           } as CSSProperties
         }
       >
-        {ordered(items).map((field) => (
-          <FieldControl
-            key={field.id}
-            field={field}
-            id={`${prefix}-${field.id}`}
-            value={value.fields[field.key]}
-            disabled={readonly}
-            lookupProvider={props.lookupProvider}
-            onLookupOptionsLoaded={handleLookupOptionsLoaded}
-            error={
-              errors.find((e) => e.path === `fields.${field.key}`)?.message
-            }
-            onChange={(v) =>
-              update({ ...value, fields: { ...value.fields, [field.key]: v } })
-            }
-          />
-        ))}
+        {ordered(items).map((field) => {
+          const effect =
+            ruleEffects.fieldStates[field.id] ||
+            ruleEffects.fieldStates[field.key];
+          const isHidden = effect?.hidden ?? field.hidden;
+          if (isHidden) return null;
+
+          const isDisabled =
+            readonly || (effect?.disabled ?? field.readOnly ?? false);
+          const isRequired = effect?.required ?? field.required ?? false;
+
+          return (
+            <FieldControl
+              key={field.id}
+              field={{
+                ...field,
+                hidden: isHidden,
+                required: isRequired,
+                readOnly: isDisabled,
+              }}
+              id={`${prefix}-${field.id}`}
+              value={value.fields[field.key]}
+              disabled={isDisabled}
+              lookupProvider={props.lookupProvider}
+              onLookupOptionsLoaded={handleLookupOptionsLoaded}
+              error={
+                errors.find((e) => e.path === `fields.${field.key}`)?.message
+              }
+              onChange={(v) =>
+                update({
+                  ...value,
+                  fields: { ...value.fields, [field.key]: v },
+                })
+              }
+            />
+          );
+        })}
       </div>
     );
   }
@@ -146,14 +242,6 @@ function ValidForm({
       </section>
     );
   }
-  const deferred =
-    schema.rules.length > 0 ||
-    allFields(schema).some((f) => f.type === "calculated") ||
-    schema.tabs.some(
-      (t) =>
-        t.type === "details" &&
-        t.configuration.columns.some((c) => c.type === "calculated"),
-    );
   return (
     <form
       ref={formRef}
@@ -203,12 +291,6 @@ function ValidForm({
       {mode === "preview" && (
         <p className="fr-notice">
           Preview only. Entries, notes and selected files are not saved.
-        </p>
-      )}
-      {deferred && (
-        <p className="fr-notice">
-          Rules and calculations are not applied in this renderer version.
-          Calculated fields display provided values.
         </p>
       )}
       {!!errors.length && (

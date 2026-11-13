@@ -2,14 +2,22 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FormService } from '../form-service';
 import { FormRepository, FormEntity, FormVersionEntity } from '../../repositories/form-repository';
 import { MembershipRepository } from '../../repositories/membership-repository';
-import { OrganizationMembership } from '@field/types';
+import { OrganizationMembership, PlatformRole } from '@field/types';
 import { MINIMAL_VALID_SCHEMA } from '@field/form-engine';
 
 class MockMembershipRepository implements MembershipRepository {
-  private activeMemberships = new Set<string>();
+  private activeMemberships = new Map<
+    string,
+    { role_key: PlatformRole; status: 'active' | 'invited' | 'disabled' }
+  >();
 
-  addMembership(userId: string, orgId: string) {
-    this.activeMemberships.add(`${userId}:${orgId}`);
+  addMembership(
+    userId: string,
+    orgId: string,
+    role_key: PlatformRole = 'business_admin',
+    status: 'active' | 'invited' | 'disabled' = 'active',
+  ) {
+    this.activeMemberships.set(`${userId}:${orgId}`, { role_key, status });
   }
 
   async findByUserId(userId: string): Promise<OrganizationMembership[]> {
@@ -17,18 +25,27 @@ class MockMembershipRepository implements MembershipRepository {
   }
 
   async findUserMembershipInOrg(userId: string, organizationId: string): Promise<OrganizationMembership | null> {
-    if (this.activeMemberships.has(`${userId}:${organizationId}`)) {
+    const found = this.activeMemberships.get(`${userId}:${organizationId}`);
+    if (found) {
       return {
         id: `mem_${userId}`,
         organization_id: organizationId,
         user_id: userId,
-        role_key: 'business_admin',
-        status: 'active',
+        role_key: found.role_key,
+        status: found.status,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
     }
     return null;
+  }
+
+  async getRoster(): Promise<any> {
+    return [];
+  }
+
+  async manageMembership(): Promise<any> {
+    return { success: true };
   }
 }
 
@@ -450,7 +467,7 @@ describe('FormService', () => {
         organizationId: orgB,
         formId: form.id,
       }),
-    ).rejects.toThrow('Form not found or inaccessible in this organization');
+    ).rejects.toThrow(/Form not found or inaccessible/);
   });
 
   it('blocks saving edits to an already published version', async () => {
@@ -489,6 +506,542 @@ describe('FormService', () => {
     const create = vi.spyOn(formRepo, 'createForm');
     await expect(formService.createForm({ userId: userA, organizationId: orgA, key: 'denied', title: 'Denied' })).rejects.toThrow('Unauthorized');
     expect(create).not.toHaveBeenCalled();
+  });
+
+  describe('Form publishing authorization and tenant isolation', () => {
+    it('prevents an active manager membership from publishing a form', async () => {
+      const { form, version: draft } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'manager_test_form',
+        title: 'Manager Test Form',
+      });
+
+      const managerUser = 'user_manager_789';
+      membershipRepo.addMembership(managerUser, orgA, 'manager', 'active');
+
+      await expect(
+        formService.publishForm({
+          userId: managerUser,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: draft.id,
+        }),
+      ).rejects.toThrow(/Unauthorized: Only business_admin and super_admin are authorized to publish forms\./);
+    });
+
+    it('prevents an employee from publishing a form', async () => {
+      const { form, version: draft } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'employee_test_form',
+        title: 'Employee Test Form',
+      });
+
+      const employeeUser = 'user_employee_101';
+      membershipRepo.addMembership(employeeUser, orgA, 'employee', 'active');
+
+      await expect(
+        formService.publishForm({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: draft.id,
+        }),
+      ).rejects.toThrow(/Unauthorized: Only business_admin and super_admin are authorized to publish forms\./);
+    });
+
+    it('allows an authorized business administrator or super admin to publish', async () => {
+      // 1. business_admin publish
+      const { form: form1, version: draft1 } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'admin_test_form_1',
+        title: 'Admin Test Form 1',
+      });
+
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: form1.id,
+          versionId: draft1.id,
+          changeNote: 'Published by business_admin',
+        }),
+      ).resolves.toBeUndefined();
+
+      const published1 = await formRepo.getPublishedVersion(form1.id, orgA);
+      expect(published1?.status).toBe('published');
+      expect(published1?.change_note).toBe('Published by business_admin');
+
+      // 2. super_admin publish
+      const superAdminUser = 'user_super_admin_999';
+      membershipRepo.addMembership(superAdminUser, orgA, 'super_admin', 'active');
+
+      const { form: form2, version: draft2 } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'admin_test_form_2',
+        title: 'Admin Test Form 2',
+      });
+
+      await expect(
+        formService.publishForm({
+          userId: superAdminUser,
+          organizationId: orgA,
+          formId: form2.id,
+          versionId: draft2.id,
+          changeNote: 'Published by super_admin',
+        }),
+      ).resolves.toBeUndefined();
+
+      const published2 = await formRepo.getPublishedVersion(form2.id, orgA);
+      expect(published2?.status).toBe('published');
+      expect(published2?.change_note).toBe('Published by super_admin');
+    });
+
+    it('rejects publishing when version belongs to another organization', async () => {
+      const { form: formA, version: draftA } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'org_a_cross_test',
+        title: 'Org A Form',
+      });
+
+      const { form: formB, version: draftB } = await formService.createForm({
+        userId: userB,
+        organizationId: orgB,
+        key: 'org_b_cross_test',
+        title: 'Org B Form',
+      });
+
+      // User A attempts to publish Form A with Version B ID (cross-tenant version injection)
+      await expect(
+        formService.publishForm({
+          userId: userA,
+          organizationId: orgA,
+          formId: formA.id,
+          versionId: draftB.id,
+        }),
+      ).rejects.toThrow('Specified version is not the active draft for this form.');
+
+      // User B attempts to publish Form A within Org B scope (tenant isolation: Form A not in Org B)
+      await expect(
+        formService.publishForm({
+          userId: userB,
+          organizationId: orgB,
+          formId: formA.id,
+          versionId: draftA.id,
+        }),
+      ).rejects.toThrow(/Form not found or inaccessible/);
+    });
+
+    it('rejects publishing when caller does not have active membership in target organization', async () => {
+      const { form, version: draft } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'membership_test_form',
+        title: 'Membership Test Form',
+      });
+
+      const externalUser = 'user_external_404';
+
+      await expect(
+        formService.publishForm({
+          userId: externalUser,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: draft.id,
+        }),
+      ).rejects.toThrow(/Unauthorized: User user_external_404 is not an active member of organization org_a_123/);
+    });
+  });
+
+  describe('Phase B: Form Settings & Permissions Authorization (authorizeFormAction)', () => {
+    const managerUser = 'user_manager_b';
+    const employeeUser = 'user_employee_b';
+
+    beforeEach(() => {
+      membershipRepo.addMembership(managerUser, orgA, 'manager', 'active');
+      membershipRepo.addMembership(employeeUser, orgA, 'employee', 'active');
+    });
+
+    it('allows business_admin and super_admin to manage_form by default', async () => {
+      const { form } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'manage_default_form',
+        title: 'Default Form',
+      });
+
+      const adminRes = await formService.authorizeFormAction({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        action: 'manage_form',
+      });
+      expect(adminRes.form.id).toBe(form.id);
+      expect(adminRes.membership.role_key).toBe('business_admin');
+    });
+
+    it('denies manager and employee manage_form by default when not in manageFormRoles', async () => {
+      const { form } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'manage_denial_form',
+        title: 'Denial Form',
+      });
+
+      await expect(
+        formService.authorizeFormAction({
+          userId: managerUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'manage_form',
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "manager" is not permitted to manage this form\./);
+
+      await expect(
+        formService.authorizeFormAction({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'manage_form',
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "employee" is not permitted to manage this form\./);
+    });
+
+    it('allows manager to manage_form when manager is explicitly in draft manageFormRoles', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'manage_grant_form',
+        title: 'Grant Form',
+      });
+
+      const updatedSchema = {
+        ...MINIMAL_VALID_SCHEMA,
+        permissions: {
+          manageFormRoles: ['business_admin', 'super_admin', 'manager'] as PlatformRole[],
+        },
+      };
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema: updatedSchema,
+      });
+
+      // Manager can now authorize manage_form and save drafts!
+      const managerRes = await formService.authorizeFormAction({
+        userId: managerUser,
+        organizationId: orgA,
+        formId: form.id,
+        action: 'manage_form',
+      });
+      expect(managerRes.membership.role_key).toBe('manager');
+
+      await expect(
+        formService.saveDraft({
+          userId: managerUser,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+          schema: updatedSchema,
+          changeNote: 'Manager saved draft',
+        }),
+      ).resolves.toBeDefined();
+
+      // Employee is still not permitted
+      await expect(
+        formService.saveDraft({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+          schema: updatedSchema,
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "employee" is not permitted to manage this form\./);
+    });
+
+    it('strictly forbids manager from publishing even if granted manageFormRoles', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'manager_cannot_publish_form',
+        title: 'Manager Publish Prohibition',
+      });
+
+      const schemaWithManager = {
+        ...MINIMAL_VALID_SCHEMA,
+        permissions: {
+          manageFormRoles: ['business_admin', 'super_admin', 'manager'] as PlatformRole[],
+        },
+      };
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema: schemaWithManager,
+      });
+
+      await expect(
+        formService.publishForm({
+          userId: managerUser,
+          organizationId: orgA,
+          formId: form.id,
+          versionId: version.id,
+        }),
+      ).rejects.toThrow(/Unauthorized: Only business_admin and super_admin are authorized to publish forms\./);
+    });
+
+    it('enforces admin lockout prevention: admins retain manage_form even if schema omits them', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'lockout_test_form',
+        title: 'Lockout Test Form',
+      });
+
+      // Directly simulate a corrupted draft where manageFormRoles is missing business_admin
+      const draftEntity = formRepo.versions.get(version.id)!;
+      draftEntity.schema_jsonb = {
+        ...MINIMAL_VALID_SCHEMA,
+        permissions: {
+          manageFormRoles: ['manager'] as any,
+        },
+      };
+
+      // business_admin still retains manage_form rights
+      const auth = await formService.authorizeFormAction({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        action: 'manage_form',
+      });
+      expect(auth.membership.role_key).toBe('business_admin');
+    });
+
+    it('evaluates submission actions against published permissions', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'sub_perms_form',
+        title: 'Submission Permissions Form',
+      });
+
+      // Configure customized permissions:
+      // - createRoles: only manager & employee
+      // - readAllRoles: only super_admin & business_admin (exclude manager)
+      // - readOwnRoles: manager & employee
+      const schema = {
+        ...MINIMAL_VALID_SCHEMA,
+        permissions: {
+          manageFormRoles: ['business_admin', 'super_admin'] as PlatformRole[],
+          createRoles: ['manager', 'employee'] as PlatformRole[],
+          readAllRoles: ['business_admin', 'super_admin'] as PlatformRole[],
+          readOwnRoles: ['manager', 'employee'] as PlatformRole[],
+        },
+      };
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema,
+      });
+
+      await formService.publishForm({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+      });
+
+      // 1. create_submission
+      await expect(
+        formService.authorizeFormAction({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'create_submission',
+        }),
+      ).resolves.toBeDefined();
+
+      await expect(
+        formService.authorizeFormAction({
+          userId: userA, // business_admin is excluded from createRoles in this custom schema
+          organizationId: orgA,
+          formId: form.id,
+          action: 'create_submission',
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "business_admin" is not permitted to create submissions for this form\./);
+
+      // 2. read_all_submissions
+      await expect(
+        formService.authorizeFormAction({
+          userId: userA,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'read_all_submissions',
+        }),
+      ).resolves.toBeDefined();
+
+      await expect(
+        formService.authorizeFormAction({
+          userId: managerUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'read_all_submissions',
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "manager" is not permitted to view all submissions for this form\./);
+
+      // 3. read_own_submission
+      await expect(
+        formService.authorizeFormAction({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'read_own_submission',
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    it('loads published form with getPublishedForm when authorized', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'published_loader_form',
+        title: 'Published Loader Form',
+      });
+
+      // Before publish, getPublishedForm fails
+      await expect(
+        formService.getPublishedForm({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+        }),
+      ).rejects.toThrow(/Form does not have an active published version\./);
+
+      await formService.publishForm({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+      });
+
+      // Default action is create_submission
+      const publishedData = await formService.getPublishedForm({
+        userId: employeeUser,
+        organizationId: orgA,
+        formId: form.id,
+      });
+
+      expect(publishedData.form.id).toBe(form.id);
+      expect(publishedData.publishedVersion.id).toBe(version.id);
+      expect(publishedData.publishedVersion.status).toBe('published');
+    });
+
+    it('allows read-only users with read permissions to retrieve published form even if create_submission is denied', async () => {
+      const { form, version } = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'readonly_access_form',
+        title: 'Read Only Access Form',
+      });
+
+      // Custom permissions:
+      // - createRoles: only manager (employee cannot create!)
+      // - readOwnRoles: employee (employee can view own records!)
+      // - readAllRoles: business_admin, super_admin
+      const schema = {
+        ...MINIMAL_VALID_SCHEMA,
+        permissions: {
+          manageFormRoles: ['business_admin', 'super_admin'] as PlatformRole[],
+          createRoles: ['manager'] as PlatformRole[],
+          readOwnRoles: ['employee', 'manager'] as PlatformRole[],
+          readAllRoles: ['business_admin', 'super_admin'] as PlatformRole[],
+        },
+      };
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+        schema,
+      });
+
+      await formService.publishForm({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        versionId: version.id,
+      });
+
+      // 1. Employee calling with default action (create_submission) is denied
+      await expect(
+        formService.getPublishedForm({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "employee" is not permitted to create submissions/);
+
+      // 2. Employee calling with action: 'create_submission' explicitly is denied
+      await expect(
+        formService.getPublishedForm({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'create_submission',
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "employee" is not permitted to create submissions/);
+
+      // 3. Employee calling with action: 'read_own_submission' SUCCEEDS!
+      const readOwnResult = await formService.getPublishedForm({
+        userId: employeeUser,
+        organizationId: orgA,
+        formId: form.id,
+        action: 'read_own_submission',
+      });
+      expect(readOwnResult.publishedVersion.id).toBe(version.id);
+
+      // 4. Employee calling with action: 'read_all_submissions' is denied (not in readAllRoles)
+      await expect(
+        formService.getPublishedForm({
+          userId: employeeUser,
+          organizationId: orgA,
+          formId: form.id,
+          action: 'read_all_submissions',
+        }),
+      ).rejects.toThrow(/Unauthorized: Role "employee" is not permitted to view all submissions/);
+
+      // 5. Admin calling with action: 'read_all_submissions' SUCCEEDS
+      const readAllResult = await formService.getPublishedForm({
+        userId: userA,
+        organizationId: orgA,
+        formId: form.id,
+        action: 'read_all_submissions',
+      });
+      expect(readAllResult.publishedVersion.id).toBe(version.id);
+
+      // 6. Cross-tenant access remains denied
+      await expect(
+        formService.getPublishedForm({
+          userId: userB,
+          organizationId: orgB,
+          formId: form.id,
+          action: 'read_all_submissions',
+        }),
+      ).rejects.toThrow(/Form not found or inaccessible/);
+    });
   });
 
 });

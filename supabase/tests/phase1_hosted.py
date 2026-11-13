@@ -106,15 +106,15 @@ class HostedGate:
               (SELECT count(*) FROM pg_class WHERE oid IN ('public.forms'::regclass,'public.form_versions'::regclass) AND relrowsecurity) AS rls_tables,
               (SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='one_active_draft_per_form') AS draft_index,
               (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.form_versions'::regclass AND conname='form_versions_org_form_fkey') AS tenant_fk,
-              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='publish_form_version' AND pronargs=2 AND NOT prosecdef AND prosrc LIKE '%auth.uid()%') AS safe_rpc,
-              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='publish_form_version' AND pronargs=3) AS legacy_rpc,
+              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='publish_form_version' AND oidvectortypes(p.proargtypes)='uuid, uuid, text' AND p.pronargdefaults=1 AND NOT prosecdef AND prosrc LIKE '%auth.uid()%') AS safe_rpc,
+              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='publish_form_version' AND oidvectortypes(p.proargtypes)='uuid, uuid, uuid') AS legacy_rpc,
               (SELECT count(*) FROM pg_trigger WHERE tgrelid='public.form_versions'::regclass AND NOT tgisinternal AND tgenabled='O') AS triggers,
               (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename IN ('forms','form_versions')) AS policies
         """)[0]
         self.check(rows['rls_tables'] == 2, 'Hosted forms and form_versions exist with RLS enabled')
         self.check('UNIQUE INDEX' in rows['draft_index'] and "WHERE (status = 'draft'::text)" in rows['draft_index'], 'Hosted one-active-draft partial unique index')
         self.check('FOREIGN KEY (organization_id, form_id) REFERENCES forms(organization_id, id)' in rows['tenant_fk'], 'Hosted composite tenant-consistency foreign key')
-        self.check(rows['safe_rpc'] == 1 and rows['legacy_rpc'] == 0, 'Hosted invoker RPC derives auth.uid; caller-identity overload absent')
+        self.check(rows['safe_rpc'] == 1 and rows['legacy_rpc'] == 0, 'Hosted invoker RPC derives auth.uid with (uuid, uuid, text) signature; caller-identity overload absent')
         self.check(rows['triggers'] == 2 and rows['policies'] == 7, 'Hosted immutability triggers and seven Form Builder RLS policies')
         versions = {row['version'] for row in self.sql('SELECT version FROM supabase_migrations.schema_migrations')}
         self.check({'20260922000000', '20260925000000', '20260925010000', '20260930000000'} <= versions, 'All four migrations recorded remotely')

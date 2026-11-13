@@ -57,8 +57,11 @@ export type BuilderModuleTab =
 export interface FormBuilderProps {
   initialSchema: FormSchemaV1;
   onChange?: (schema: FormSchemaV1) => void;
-  onSave?: (schema: FormSchemaV1) => void | Promise<void>;
-  onPublish?: (changeNote?: string) => void | Promise<void>;
+  onSave?: (schema: FormSchemaV1) => unknown | Promise<unknown>;
+  onPublish?: (
+    changeNote?: string,
+    schema?: FormSchemaV1,
+  ) => void | Promise<void>;
   versions?: readonly FormVersionSummary[];
   onLoadVersions?: () => Promise<readonly FormVersionSummary[]>;
   createId?: (prefix: string) => string;

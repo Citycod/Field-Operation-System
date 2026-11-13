@@ -1,6 +1,7 @@
 export * from './schema';
 export * from './validation';
 export * from './fixtures';
+export * from './rules';
 
 export function getFormEngineStatus() {
   return {

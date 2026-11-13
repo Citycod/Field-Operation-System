@@ -2,6 +2,9 @@ import { FieldDefinition } from '../schema/fields';
 import { FormTabUnion, DetailsTabDefinition, NotesTabDefinition, DocumentsTabDefinition } from '../schema/tabs';
 import { ValidationResult, ValidationError, ValidationWarning } from './types';
 import { validateStructure } from './structure-validator';
+import { validateFormSettings, validateFormPermissions } from './settings-permissions-validator';
+import { validateRulesSemantic, validateCalculationsSemantic } from './rules-validator';
+import { validateListViewSemantic } from './list-view-validator';
 
 const VALID_FIELD_TYPES = ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'lookup', 'file', 'calculated'] as const;
 const VALID_TAB_TYPES = ['form', 'details', 'notes', 'documents'] as const;
@@ -55,6 +58,7 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
   // --- Duplicate detection sets ---
   const fieldIds = new Set<string>();
   const fieldKeys = new Set<string>();
+  const collectedFields: FieldDefinition[] = [];
 
   function validateField(field: unknown, path: string) {
     if (!field || typeof field !== 'object') {
@@ -76,6 +80,10 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
       errors.push({ path: `${path}.key`, message: `Duplicate field Key: ${f.key}`, code: 'DUPLICATE_FIELD_KEY' });
     } else {
       fieldKeys.add(f.key);
+    }
+
+    if (f.id && f.key && f.type && (VALID_FIELD_TYPES as readonly string[]).includes(f.type)) {
+      collectedFields.push(f as FieldDefinition);
     }
 
     if (!f.type || !(VALID_FIELD_TYPES as readonly string[]).includes(f.type)) {
@@ -219,6 +227,23 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
         }
       }
     });
+  }
+
+  // Settings & Permissions semantic validation
+  errors.push(...validateFormSettings(s.settings));
+  errors.push(...validateFormPermissions(s.permissions));
+
+  // Rules & Calculations semantic validation (draft mode allows WIP references)
+  if (Array.isArray(s.rules)) {
+    errors.push(...validateRulesSemantic(s.rules, fieldIds, fieldKeys, false));
+  }
+  if (Array.isArray(s.tabs)) {
+    errors.push(...validateCalculationsSemantic(collectedFields, s.tabs as FormTabUnion[], false));
+  }
+
+  // List View semantic validation (draft mode allows WIP references)
+  if (s.listView !== undefined) {
+    errors.push(...validateListViewSemantic(s.listView, fieldIds, fieldKeys, false));
   }
 
   return {

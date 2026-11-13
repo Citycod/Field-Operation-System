@@ -1,5 +1,6 @@
 import {
   validateDraftSchema,
+  evaluateRules,
   type FormSchemaV1,
   type FieldDefinition,
   type DetailsColumnDefinition,
@@ -161,13 +162,18 @@ export function validateValue(
   lookupOptionsByFieldId?: Readonly<Record<string, readonly OptionItem[]>>,
 ): ValueError[] {
   const errors: ValueError[] = [];
+  const allFieldDefs = allFields(schema);
+  const ruleEffects = evaluateRules(schema.rules, value.fields, allFieldDefs);
+
   function field(
     f: FieldDefinition,
     v: FieldValue | undefined,
     path: string,
     tabId?: string,
   ) {
-    if (f.hidden) return;
+    const effect = ruleEffects.fieldStates[f.id] || ruleEffects.fieldStates[f.key];
+    const isHidden = effect?.hidden ?? f.hidden;
+    if (isHidden) return;
     let message: string | undefined;
     const empty =
       v === undefined ||
@@ -175,7 +181,8 @@ export function validateValue(
       v === "" ||
       (typeof v === "string" && !v.trim()) ||
       (Array.isArray(v) && !v.length);
-    if (f.required && (empty || (f.type === "checkbox" && v !== true)))
+    const isRequired = effect?.required ?? f.required;
+    if (isRequired && (empty || (f.type === "checkbox" && v !== true)))
       message = "This field is required.";
     if (!empty) {
       if (["number", "currency"].includes(f.type)) {

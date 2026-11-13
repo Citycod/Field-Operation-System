@@ -1,6 +1,20 @@
-import { FormRepository } from '../repositories/form-repository';
+import { FormRepository, FormEntity, FormVersionEntity } from '../repositories/form-repository';
 import { MembershipRepository } from '../repositories/membership-repository';
 import { validateDraftSchema, validatePublishableSchema, FormSchemaV1 } from '@field/form-engine';
+import { OrganizationMembership } from '@field/types';
+
+export type FormAction =
+  | 'manage_form'
+  | 'publish_form'
+  | 'create_submission'
+  | 'read_own_submission'
+  | 'read_all_submissions';
+
+export interface AuthorizeFormResult {
+  membership: OrganizationMembership;
+  form: FormEntity;
+  version?: FormVersionEntity | null;
+}
 
 export class FormService {
   constructor(
@@ -8,11 +22,112 @@ export class FormService {
     private membershipRepository: MembershipRepository
   ) {}
 
-  private async checkMembership(userId: string, organizationId: string): Promise<void> {
+  private async checkMembership(userId: string, organizationId: string): Promise<OrganizationMembership> {
     const membership = await this.membershipRepository.findUserMembershipInOrg(userId, organizationId);
     if (!membership || membership.status !== 'active' || !['business_admin', 'super_admin'].includes(membership.role_key)) {
       throw new Error(`Unauthorized: User ${userId} does not have active form-management permission in organization ${organizationId}`);
     }
+    return membership;
+  }
+
+  async authorizeFormAction(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+    action: FormAction;
+  }): Promise<AuthorizeFormResult> {
+    const membership = await this.membershipRepository.findUserMembershipInOrg(
+      params.userId,
+      params.organizationId,
+    );
+    if (!membership || membership.status !== 'active') {
+      throw new Error(
+        `Unauthorized: User ${params.userId} is not an active member of organization ${params.organizationId}`,
+      );
+    }
+
+    const form = await this.formRepository.getFormById(
+      params.formId,
+      params.organizationId,
+    );
+    if (!form || form.organization_id !== params.organizationId) {
+      throw new Error(
+        `Form not found or inaccessible in organization ${params.organizationId}`,
+      );
+    }
+
+    const isPlatformAdmin = ['super_admin', 'business_admin'].includes(membership.role_key);
+
+    if (params.action === 'publish_form') {
+      if (!isPlatformAdmin) {
+        throw new Error(
+          `Unauthorized: Only business_admin and super_admin are authorized to publish forms.`,
+        );
+      }
+      return { membership, form };
+    }
+
+    if (params.action === 'manage_form') {
+      if (isPlatformAdmin) {
+        return { membership, form };
+      }
+      const draft = await this.formRepository.getDraftVersion(
+        params.formId,
+        params.organizationId,
+      );
+      const manageRoles =
+        (draft?.schema_jsonb as FormSchemaV1 | undefined)?.permissions?.manageFormRoles ??
+        ['business_admin', 'super_admin'];
+      if (!manageRoles.includes(membership.role_key)) {
+        throw new Error(
+          `Unauthorized: Role "${membership.role_key}" is not permitted to manage this form.`,
+        );
+      }
+      return { membership, form, version: draft };
+    }
+
+    // Submission actions evaluate permissions from the active published version
+    const published = await this.formRepository.getPublishedVersion(
+      params.formId,
+      params.organizationId,
+    );
+    if (!published) {
+      throw new Error('Form does not have an active published version.');
+    }
+
+    const perms = (published.schema_jsonb as FormSchemaV1 | undefined)?.permissions || {};
+
+    if (params.action === 'create_submission') {
+      const allowed = perms.createRoles ?? ['super_admin', 'business_admin', 'manager', 'employee'];
+      if (!allowed.includes(membership.role_key)) {
+        throw new Error(
+          `Unauthorized: Role "${membership.role_key}" is not permitted to create submissions for this form.`,
+        );
+      }
+      return { membership, form, version: published };
+    }
+
+    if (params.action === 'read_all_submissions') {
+      const allowed = perms.readAllRoles ?? ['super_admin', 'business_admin', 'manager'];
+      if (!allowed.includes(membership.role_key)) {
+        throw new Error(
+          `Unauthorized: Role "${membership.role_key}" is not permitted to view all submissions for this form.`,
+        );
+      }
+      return { membership, form, version: published };
+    }
+
+    if (params.action === 'read_own_submission') {
+      const allowed = perms.readOwnRoles ?? ['super_admin', 'business_admin', 'manager', 'employee'];
+      if (!allowed.includes(membership.role_key)) {
+        throw new Error(
+          `Unauthorized: Role "${membership.role_key}" is not permitted to view submissions for this form.`,
+        );
+      }
+      return { membership, form, version: published };
+    }
+
+    return { membership, form, version: published };
   }
 
   async listForms(params: { userId: string; organizationId: string }) {
@@ -21,11 +136,38 @@ export class FormService {
   }
 
   async getEditableDraft(params: { userId: string; organizationId: string; formId: string }) {
-    await this.checkMembership(params.userId, params.organizationId);
+    await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'manage_form',
+    });
     const form = await this.formRepository.getFormById(params.formId, params.organizationId);
     if (!form) return null;
     const draft = await this.formRepository.getDraftVersion(params.formId, params.organizationId);
     return { form, draft };
+  }
+
+  async getPublishedForm(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+    action?: 'create_submission' | 'read_all_submissions' | 'read_own_submission';
+  }) {
+    const action = params.action ?? 'create_submission';
+    const authResult = await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action,
+    });
+    if (!authResult.version) {
+      throw new Error('Form does not have an active published version.');
+    }
+    return {
+      form: authResult.form,
+      publishedVersion: authResult.version,
+    };
   }
 
   async createForm(params: {
@@ -92,7 +234,12 @@ export class FormService {
     schema: FormSchemaV1;
     changeNote?: string;
   }) {
-    await this.checkMembership(params.userId, params.organizationId);
+    await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'manage_form',
+    });
 
     const draftValidation = validateDraftSchema(params.schema);
     if (!draftValidation.valid) {
@@ -115,7 +262,12 @@ export class FormService {
     versionId: string;
     changeNote?: string;
   }) {
-    await this.checkMembership(params.userId, params.organizationId);
+    await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'publish_form',
+    });
 
     const draft = await this.formRepository.getDraftVersion(params.formId, params.organizationId);
     if (!draft || draft.id !== params.versionId) {
@@ -141,11 +293,12 @@ export class FormService {
     organizationId: string;
     formId: string;
   }) {
-    await this.checkMembership(params.userId, params.organizationId);
-    const form = await this.formRepository.getFormById(params.formId, params.organizationId);
-    if (!form) {
-      throw new Error('Form not found or inaccessible in this organization.');
-    }
+    await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'manage_form',
+    });
     return this.formRepository.listVersions(params.formId, params.organizationId);
   }
 
@@ -154,7 +307,12 @@ export class FormService {
     organizationId: string;
     formId: string;
   }) {
-    await this.checkMembership(params.userId, params.organizationId);
+    await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'manage_form',
+    });
     return this.formRepository.createDraftFromPublished(params);
   }
 }

@@ -69,8 +69,8 @@ class Phase1DatabaseTests(unittest.TestCase):
         self.assertIn("WHERE (status = 'draft'::text)", index)
         self.assertEqual(sql("SELECT count(*) FROM pg_trigger WHERE tgrelid='public.form_versions'::regclass AND NOT tgisinternal").stdout.strip(), '2')
         self.assertEqual(sql("SELECT count(*) FROM pg_policies WHERE tablename IN ('forms','form_versions')").stdout.strip(), '7')
-        self.assertEqual(sql("SELECT count(*) FROM pg_proc WHERE proname='publish_form_version' AND pronargs=2 AND NOT prosecdef").stdout.strip(), '1')
-        self.assertEqual(sql("SELECT count(*) FROM pg_proc WHERE proname='publish_form_version' AND pronargs=3").stdout.strip(), '0')
+        self.assertEqual(sql("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='publish_form_version' AND oidvectortypes(p.proargtypes)='uuid, uuid, text' AND p.pronargdefaults=1 AND NOT prosecdef AND prosrc LIKE '%auth.uid()%'").stdout.strip(), '1')
+        self.assertEqual(sql("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='publish_form_version' AND oidvectortypes(p.proargtypes)='uuid, uuid, uuid'").stdout.strip(), '0')
 
     def test_org_a_reads_own_form_and_version(self):
         self.scalar(f"SELECT count(*) FROM public.forms WHERE id='{FA}'", 1)
@@ -97,6 +97,55 @@ class Phase1DatabaseTests(unittest.TestCase):
             self.scalar(f'SELECT count(*) FROM public.{table}', 0, DISABLED)
         self.denied(f"INSERT INTO public.forms (organization_id,key,title,created_by) VALUES ('{A}','disabled','Disabled','{DISABLED}')", DISABLED)
         self.denied(f"SELECT public.publish_form_version('{FA}','{VA}')", DISABLED, 'not authorized')
+
+    def test_suspended_organization_denies_all_operations(self):
+        # Even with active business_admin membership, suspended organization shuts down ordinary tenant access
+        try:
+            sql(f"UPDATE public.organizations SET status='suspended' WHERE id='{A}'")
+            for table in ['forms', 'form_versions']:
+                self.scalar(f'SELECT count(*) FROM public.{table}', 0, UA)
+            self.scalar(f"SELECT public.is_organization_member('{A}')", 'f', UA)
+            self.scalar(f"SELECT public.get_organization_role('{A}') IS NULL", 't', UA)
+            self.denied(version_insert(form=FA, org=A, user=UA), UA)
+            self.denied(f"SELECT public.publish_form_version('{FA}','{VA}')", UA, 'not authorized')
+        finally:
+            sql(f"UPDATE public.organizations SET status='active' WHERE id='{A}'")
+
+    def test_archived_organization_denies_all_operations(self):
+        try:
+            sql(f"UPDATE public.organizations SET status='archived' WHERE id='{A}'")
+            for table in ['forms', 'form_versions']:
+                self.scalar(f'SELECT count(*) FROM public.{table}', 0, UA)
+            self.scalar(f"SELECT public.is_organization_member('{A}')", 'f', UA)
+            self.scalar(f"SELECT public.get_organization_role('{A}') IS NULL", 't', UA)
+            self.denied(version_insert(form=FA, org=A, user=UA), UA)
+            self.denied(f"SELECT public.publish_form_version('{FA}','{VA}')", UA, 'not authorized')
+        finally:
+            sql(f"UPDATE public.organizations SET status='active' WHERE id='{A}'")
+
+    def test_invited_membership_denies_all_operations(self):
+        INVITED = '00000000-0000-0000-0000-000000000099'
+        try:
+            sql(f"INSERT INTO auth.users (id) VALUES ('{INVITED}') ON CONFLICT DO NOTHING")
+            sql(f"INSERT INTO public.organization_memberships (organization_id, user_id, role_key, status) VALUES ('{A}', '{INVITED}', 'business_admin', 'invited')")
+            for table in ['forms', 'form_versions']:
+                self.scalar(f'SELECT count(*) FROM public.{table}', 0, INVITED)
+            self.scalar(f"SELECT public.is_organization_member('{A}')", 'f', INVITED)
+            self.scalar(f"SELECT public.get_organization_role('{A}') IS NULL", 't', INVITED)
+            self.denied(version_insert(form=FA, org=A, user=INVITED), INVITED)
+            self.denied(f"SELECT public.publish_form_version('{FA}','{VA}')", INVITED, 'not authorized')
+        finally:
+            sql(f"DELETE FROM public.organization_memberships WHERE user_id='{INVITED}'")
+            sql(f"DELETE FROM auth.users WHERE id='{INVITED}'")
+
+    def test_rls_helpers_anon_execution_denied(self):
+        res_member = sql(f"BEGIN; SET LOCAL ROLE anon; SELECT public.is_organization_member('{A}'); ROLLBACK", check=False)
+        self.assertNotEqual(res_member.returncode, 0)
+        self.assertIn('permission denied', res_member.stderr)
+
+        res_role = sql(f"BEGIN; SET LOCAL ROLE anon; SELECT public.get_organization_role('{A}'); ROLLBACK", check=False)
+        self.assertNotEqual(res_role.returncode, 0)
+        self.assertIn('permission denied', res_role.stderr)
 
     def test_unrelated_authenticated_user_has_no_access(self):
         for table in ['forms', 'form_versions']:
@@ -185,6 +234,68 @@ class Phase1DatabaseTests(unittest.TestCase):
         self.assertNotEqual(loser.returncode, 0)
         self.assertIn('one_active_draft_per_form', loser.stderr)
         self.assertEqual(sql(f"SELECT count(*) FROM public.form_versions WHERE form_id='{form}' AND status='draft'").stdout.strip(), '1')
+
+    def test_create_business_workspace_success(self):
+        res = as_user("""
+            SELECT public.create_business_workspace(
+                'Delta Global',
+                'delta-global',
+                '{"business_email":"ops@delta.com","industry":"Energy","country_code":"US"}'::jsonb
+            );
+            SELECT status FROM public.organizations WHERE slug='delta-global';
+            SELECT m.role_key || '|' || m.status 
+            FROM public.organization_memberships m 
+            JOIN public.organizations o ON o.id = m.organization_id 
+            WHERE o.slug='delta-global' AND m.user_id = auth.uid();
+            SELECT p.business_email || '|' || p.industry || '|' || p.timezone || '|' || p.currency_code 
+            FROM public.organization_profiles p 
+            JOIN public.organizations o ON o.id = p.organization_id 
+            WHERE o.slug='delta-global';
+        """, UA)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
+        self.assertEqual(lines[1], 'active')
+        self.assertEqual(lines[2], 'business_admin|active')
+        self.assertEqual(lines[3], 'ops@delta.com|Energy|UTC|USD')
+
+    def test_create_business_workspace_anon_and_unauth_rejected(self):
+        res_anon = sql("BEGIN; SET LOCAL ROLE anon; SELECT public.create_business_workspace('Anon Org', 'anon-org'); ROLLBACK;", check=False)
+        self.assertNotEqual(res_anon.returncode, 0)
+        self.assertIn('permission denied', res_anon.stderr)
+
+        res_unauth = sql("BEGIN; SET LOCAL ROLE authenticated; SELECT public.create_business_workspace('No User Org', 'no-user-org'); ROLLBACK;", check=False)
+        self.assertNotEqual(res_unauth.returncode, 0)
+        self.assertIn('Authentication required', res_unauth.stderr)
+
+    def test_create_business_workspace_duplicate_slug_rejected(self):
+        self.denied(
+            "SELECT public.create_business_workspace('Org A Duplicate', 'org-a')",
+            UA,
+            error='already in use'
+        )
+
+    def test_create_business_workspace_invalid_inputs_rejected(self):
+        self.denied("SELECT public.create_business_workspace('X', 'valid-slug')", UA, error='at least 2 characters')
+        self.denied("SELECT public.create_business_workspace('Valid Name', 'Invalid_Slug!')", UA, error='Invalid business slug format')
+        self.denied("SELECT public.create_business_workspace('Valid Name', 'admin')", UA, error='reserved')
+
+    def test_create_business_workspace_user_can_create_multiple_organizations(self):
+        res = as_user("""
+            SELECT public.create_business_workspace('Multi One', 'multi-one');
+            SELECT public.create_business_workspace('Multi Two', 'multi-two');
+            SELECT count(*) FROM public.organization_memberships m
+            JOIN public.organizations o ON o.id = m.organization_id
+            WHERE m.user_id = auth.uid() AND o.slug IN ('org-a', 'multi-one', 'multi-two') AND m.status = 'active';
+        """, UA)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
+        self.assertEqual(lines[-1], '3')
+
+    def test_organization_profile_rls_isolation(self):
+        sql(f"INSERT INTO public.organization_profiles (organization_id, business_email, industry) VALUES ('{B}', 'admin@org-b.com', 'Tech') ON CONFLICT DO NOTHING")
+        self.scalar(f"SELECT count(*) FROM public.organization_profiles WHERE organization_id = '{B}'", 0, UA)
+        self.scalar(f"WITH changed AS (UPDATE public.organization_profiles SET business_email='hacked@org-b.com' WHERE organization_id = '{B}' RETURNING organization_id) SELECT count(*) FROM changed", 0, UA)
+
 
 
 def main():

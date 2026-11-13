@@ -122,8 +122,16 @@ export function validateStructure(value: unknown): ValidationError[] {
     if (array(value.listView.columns, 'listView.columns', 'INVALID_LIST_VIEW_CONFIG')) value.listView.columns.forEach((column, i) => {
       if (!object(column) || !text(column.sourceRef)) fail(`listView.columns[${i}]`, 'INVALID_LIST_VIEW_CONFIG');
     });
-    if (value.listView.defaultSort !== undefined && record(value.listView.defaultSort, 'listView.defaultSort', 'INVALID_LIST_VIEW_CONFIG')) {
-      if (!text(value.listView.defaultSort.fieldRef) || !['asc', 'desc'].includes(String(value.listView.defaultSort.direction))) fail('listView.defaultSort', 'INVALID_LIST_VIEW_CONFIG');
+    if (value.listView.defaultSort !== undefined && value.listView.defaultSort !== null) {
+      if (Array.isArray(value.listView.defaultSort)) {
+        value.listView.defaultSort.forEach((sort, i) => {
+          if (!object(sort) || !text(sort.fieldRef) || !['asc', 'desc'].includes(String(sort.direction))) {
+            fail(`listView.defaultSort[${i}]`, 'INVALID_LIST_VIEW_CONFIG');
+          }
+        });
+      } else if (record(value.listView.defaultSort, 'listView.defaultSort', 'INVALID_LIST_VIEW_CONFIG')) {
+        if (!text(value.listView.defaultSort.fieldRef) || !['asc', 'desc'].includes(String(value.listView.defaultSort.direction))) fail('listView.defaultSort', 'INVALID_LIST_VIEW_CONFIG');
+      }
     }
   }
   record(value.permissions, 'permissions', 'INVALID_PERMISSIONS');

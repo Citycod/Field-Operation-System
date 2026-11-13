@@ -3,6 +3,8 @@ import { FieldDefinition } from '../schema/fields';
 import { DetailsColumnDefinition } from '../schema/tabs';
 import { validateDraftSchema } from './draft-validator';
 import { ValidationResult } from './types';
+import { validateRulesSemantic, validateCalculationsSemantic } from './rules-validator';
+import { validateListViewSemantic } from './list-view-validator';
 
 export interface PublishDataSourceSnapshot {
   id?: string;
@@ -80,12 +82,21 @@ export function validatePublishableSchema(
       }
     }
   }
-  const systemRefs = new Set(['system.id', 'system.reference_number', 'system.status', 'system.created_at', 'system.updated_at', 'system.created_by', 'system.submitted_at']);
-  const listRef = (ref: string, path: string) => {
-    if (!keys.has(ref) && !systemRefs.has(ref)) fail(path, 'BROKEN_LIST_VIEW_REF', 'List View reference does not exist');
-  };
-  s.listView.columns.forEach((column, i) => listRef(column.sourceRef, `listView.columns[${i}].sourceRef`));
-  if (s.listView.defaultSort) listRef(s.listView.defaultSort.fieldRef, 'listView.defaultSort.fieldRef');
+  for (const err of validateRulesSemantic(s.rules, ids, keys, true)) {
+    if (!result.errors.some(e => e.path === err.path && e.code === err.code)) {
+      result.errors.push(err);
+    }
+  }
+  for (const err of validateCalculationsSemantic(fields, s.tabs, true)) {
+    if (!result.errors.some(e => e.path === err.path && e.code === err.code)) {
+      result.errors.push(err);
+    }
+  }
+  for (const err of validateListViewSemantic(s.listView, ids, keys, true)) {
+    if (!result.errors.some(e => e.path === err.path && e.code === err.code)) {
+      result.errors.push(err);
+    }
+  }
   if (s.workflow) {
     if (s.workflow.type !== 'sequential') fail('workflow.type', 'INVALID_WORKFLOW_TYPE', 'Only sequential approval is supported');
     if (!s.workflow.stages.length) fail('workflow.stages', 'INVALID_WORKFLOW_STAGE', 'A configured workflow needs at least one stage');

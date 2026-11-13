@@ -39,6 +39,9 @@ import type {
   FormBuilderProps,
   FormVersionSummary,
 } from "./types";
+import { FormSettingsEditor } from "./form-settings-editor";
+import { RulesEditor } from "./rules-editor";
+import { ListViewEditor } from "./list-view-editor";
 
 const WIDTHS = ["full", "half", "third", "quarter"] as const;
 const MODULE_TABS: BuilderModuleTab[] = [
@@ -150,6 +153,7 @@ export function FormBuilder({
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [publishChangeNote, setPublishChangeNote] = useState("");
+  const [publishError, setPublishError] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [publishValidation, setPublishValidation] = useState<ReturnType<
     typeof validatePublishableSchema
@@ -721,6 +725,7 @@ export function FormBuilder({
     });
     setPublishValidation(result);
     setPublishChangeNote("");
+    setPublishError("");
     setPublishDialogOpen(true);
   };
 
@@ -732,8 +737,9 @@ export function FormBuilder({
   const confirmPublish = async () => {
     if (!onPublish) return;
     setPublishing(true);
+    setPublishError("");
     try {
-      await onPublish(publishChangeNote.trim() || undefined);
+      await onPublish(publishChangeNote.trim() || undefined, schema);
       setPublishDialogOpen(false);
       setNotice("Form version published successfully.");
       if (onLoadVersions) {
@@ -745,18 +751,22 @@ export function FormBuilder({
         }
       }
     } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? `Publish failed: ${error.message}`
-          : "Publish failed.",
-      );
+      const msg = error instanceof Error ? error.message : "Publish failed.";
+      setPublishError(msg);
+      setNotice(`Publish failed: ${msg}`);
     } finally {
       setPublishing(false);
     }
   };
 
   const handleSelectModule = async (item: BuilderModuleTab) => {
-    if (item === "Design" || item === "Versions") {
+    if (
+      item === "Design" ||
+      item === "Versions" ||
+      item === "Form Settings" ||
+      item === "Rules" ||
+      item === "List View"
+    ) {
       setActiveModule(item);
       if (item === "Versions" && onLoadVersions) {
         setLoadingVersions(true);
@@ -1114,6 +1124,39 @@ export function FormBuilder({
     </>
   )}
 
+  {activeModule === "Form Settings" && (
+    <FormSettingsEditor
+      schema={schema}
+      disabled={publishing || saving}
+      onChange={(nextSchema) => {
+        setSchema(nextSchema);
+        onChange?.(nextSchema);
+      }}
+    />
+  )}
+
+  {activeModule === "Rules" && (
+    <RulesEditor
+      schema={schema}
+      disabled={publishing || saving}
+      onChange={(nextSchema) => {
+        setSchema(nextSchema);
+        onChange?.(nextSchema);
+      }}
+    />
+  )}
+
+  {activeModule === "List View" && (
+    <ListViewEditor
+      schema={schema}
+      disabled={publishing || saving}
+      onChange={(nextSchema) => {
+        setSchema(nextSchema);
+        onChange?.(nextSchema);
+      }}
+    />
+  )}
+
   {activeModule === "Versions" && (
     <div className="fb-versions-view">
       <div className="fb-versions-header">
@@ -1396,6 +1439,15 @@ export function FormBuilder({
                     disabled={publishing}
                   />
                 </label>
+                {publishError && (
+                  <div
+                    className="fb-validation"
+                    role="alert"
+                    style={{ marginTop: 12 }}
+                  >
+                    <strong>Publish error:</strong> {publishError}
+                  </div>
+                )}
                 <div className="fb-dialog-actions">
                   <button
                     type="button"

@@ -513,7 +513,7 @@ describe("visual builder", () => {
     ).toBeNull();
   });
 
-  it("allows publishing a valid draft schema with an optional change note", async () => {
+  it("allows publishing a valid draft schema with an optional change note and passes in-memory schema", async () => {
     const publish = vi.fn().mockResolvedValue(undefined);
     const validSchema = blank();
 
@@ -539,7 +539,82 @@ describe("visual builder", () => {
       within(dialog).getByRole("button", { name: "Confirm & Publish" }),
     );
 
-    expect(publish).toHaveBeenCalledWith("Added basic requirements");
+    expect(publish).toHaveBeenCalledWith(
+      "Added basic requirements",
+      expect.objectContaining({ schemaVersion: 1 }),
+    );
+  });
+
+  it("passes updated in-memory schema with unsaved edits to onPublish", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const initial = blank();
+
+    render(
+      <FormBuilder
+        initialSchema={initial}
+        createId={ids()}
+        onPublish={publish}
+      />,
+    );
+
+    // Make an edit in builder: add a header section
+    fireEvent.click(screen.getByRole("button", { name: "＋ Header section" }));
+
+    // Click publish without manually saving draft
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = screen.getByRole("dialog", { name: "Publish Form Version" });
+    expect(dialog).toBeTruthy();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm & Publish" }),
+    );
+
+    expect(publish).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        header: expect.objectContaining({
+          sections: expect.arrayContaining([
+            expect.objectContaining({ title: "New section" }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("displays publish error and preserves in-memory edits when onPublish rejects", async () => {
+    const publish = vi.fn().mockRejectedValue(new Error("Database write failed"));
+    const validSchema = blank();
+
+    render(
+      <FormBuilder
+        initialSchema={validSchema}
+        createId={ids()}
+        onPublish={publish}
+      />,
+    );
+
+    // Make an in-memory canvas edit: add header section
+    fireEvent.click(screen.getByRole("button", { name: "＋ Header section" }));
+    expect(screen.getByDisplayValue("New section")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = screen.getByRole("dialog", { name: "Publish Form Version" });
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm & Publish" }),
+    );
+
+    await within(dialog).findByText(/Database write failed/);
+    expect(within(dialog).getByText(/Publish error:/)).toBeTruthy();
+    // Dialog remains open so user does not lose their context
+    expect(
+      screen.getByRole("dialog", { name: "Publish Form Version" }),
+    ).toBeTruthy();
+
+    // Close the dialog and verify in-memory canvas edits are preserved
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Publish Form Version" })).toBeNull();
+    expect(screen.getByDisplayValue("New section")).toBeTruthy();
   });
 
   it("displays version history in the Versions module tab and opens historical schema viewer", async () => {

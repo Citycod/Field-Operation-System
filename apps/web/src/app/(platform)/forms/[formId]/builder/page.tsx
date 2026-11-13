@@ -33,6 +33,8 @@ export default function ProductionFormBuilderPage() {
   const [viewingSchema, setViewingSchema] =
     useState<FormVersionSummary | null>(null);
   const loadedDraftContextRef = useRef<string | null>(null);
+  const latestSchemaRef = useRef<FormSchemaV1 | null>(null);
+  const isPublishingRef = useRef(false);
 
   const lookupProvider = useCallback<LookupProvider>(
     async (config, context) => {
@@ -218,33 +220,58 @@ export default function ProductionFormBuilderPage() {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Draft save failed.");
     setHasUnsavedChanges(false);
+    latestSchemaRef.current = null;
     setData((current) =>
       current ? { ...current, draft: body.version } : current,
     );
+    return body.version as FormVersionSummary;
   }
 
-  async function publishDraft(changeNote?: string) {
+  async function publishDraft(
+    changeNote?: string,
+    builderSchema?: FormSchemaV1,
+  ) {
     if (!activeOrganizationId || !data?.draft)
       throw new Error("No editable draft is available to publish.");
-    const response = await fetch(
-      `/api/forms/${encodeURIComponent(formId)}/publish`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          organizationId: activeOrganizationId,
-          versionId: data.draft.id,
-          changeNote,
-        }),
-      },
-    );
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Publish failed.");
-    setHasUnsavedChanges(false);
-    await Promise.all([
-      loadDraft({ force: true }),
-      loadVersions(),
-    ]);
+    if (isPublishingRef.current) return;
+
+    isPublishingRef.current = true;
+    try {
+      const targetSchema = builderSchema ?? latestSchemaRef.current;
+      let targetVersionId = data.draft.id;
+
+      // Always save the latest in-memory builder schema before issuing the publish request.
+      // If saving fails, publishDraft throws and the publish request is never sent.
+      if (targetSchema) {
+        const savedDraft = await saveDraft(targetSchema);
+        if (savedDraft?.id) {
+          targetVersionId = savedDraft.id;
+        }
+      }
+
+      const response = await fetch(
+        `/api/forms/${encodeURIComponent(formId)}/publish`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            organizationId: activeOrganizationId,
+            versionId: targetVersionId,
+            changeNote,
+          }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Publish failed.");
+      setHasUnsavedChanges(false);
+      latestSchemaRef.current = null;
+      await Promise.all([
+        loadDraft({ force: true }),
+        loadVersions(),
+      ]);
+    } finally {
+      isPublishingRef.current = false;
+    }
   }
 
   return (
@@ -382,8 +409,13 @@ export default function ProductionFormBuilderPage() {
           initialSchema={data.draft.schema_jsonb as FormSchemaV1}
           dataSources={dataSources}
           lookupProvider={lookupProvider}
-          onChange={() => setHasUnsavedChanges(true)}
-          onSave={saveDraft}
+          onChange={(nextSchema) => {
+            latestSchemaRef.current = nextSchema;
+            setHasUnsavedChanges(true);
+          }}
+          onSave={async (schema) => {
+            await saveDraft(schema);
+          }}
           onPublish={publishDraft}
           versions={versions}
           onLoadVersions={loadVersions}

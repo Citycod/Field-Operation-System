@@ -36,6 +36,7 @@ export interface FormPermissionDefinition {
 export interface FormSettings {
   allowDrafts?: boolean;
   referenceNumber?: {
+    enabled?: boolean;
     prefix?: string;
     suffix?: string;
     sequenceLength?: number;
@@ -44,6 +45,12 @@ export interface FormSettings {
     emailOnSubmit?: boolean;
     emailOnApprove?: boolean;
     emailOnReject?: boolean;
+    // Legacy / extended properties preserved for backward compatibility
+    onSubmit?: boolean;
+    onApproval?: boolean;
+    onRejection?: boolean;
+    onReturn?: boolean;
+    [key: string]: unknown;
   };
 }
 
