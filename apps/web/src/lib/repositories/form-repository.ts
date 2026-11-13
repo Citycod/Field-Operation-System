@@ -7,6 +7,8 @@ export interface FormEntity {
   title: string;
   description: string | null;
   status: string;
+  is_public?: boolean;
+  public_slug?: string | null;
   current_draft_version_id: string | null;
   current_published_version_id: string | null;
   created_by: string;
@@ -78,4 +80,13 @@ export interface FormRepository {
     organizationId: string;
     userId: string;
   }): Promise<FormVersionEntity>;
+
+  getPublicForm(slugOrId: string): Promise<{ form: FormEntity; publishedVersion: FormVersionEntity } | null>;
+
+  setFormPublicAccess(params: {
+    formId: string;
+    organizationId: string;
+    isPublic: boolean;
+    publicSlug?: string;
+  }): Promise<FormEntity>;
 }

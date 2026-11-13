@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   FormBuilder,
+  PublishedPreviewModal,
+  ShareFormDialog,
   type BuilderDataSourceOption,
   type BuilderMemberOption,
   type FormVersionSummary,
@@ -34,6 +36,10 @@ export default function ProductionFormBuilderPage() {
   const [versions, setVersions] = useState<FormVersionSummary[]>([]);
   const [viewingSchema, setViewingSchema] =
     useState<FormVersionSummary | null>(null);
+  const [previewVersion, setPreviewVersion] =
+    useState<FormVersionSummary | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [isPublicState, setIsPublicState] = useState<boolean | null>(null);
   const loadedDraftContextRef = useRef<string | null>(null);
   const latestSchemaRef = useRef<FormSchemaV1 | null>(null);
   const isPublishingRef = useRef(false);
@@ -310,6 +316,42 @@ export default function ProductionFormBuilderPage() {
     }
   }
 
+  const latestPublished =
+    versions.find((v) => v.status === "published") || null;
+  const isFormPublic =
+    isPublicState !== null
+      ? isPublicState
+      : Boolean((data?.form as any)?.is_public);
+
+  async function handleTogglePublicAccess(enabled: boolean) {
+    if (!activeOrganizationId) return;
+    const customSlug =
+      latestPublished?.schema_jsonb?.settings?.publicAccess?.customSlug;
+    const res = await fetch(
+      `/api/forms/${encodeURIComponent(formId)}/public-access`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organizationId: activeOrganizationId,
+          isPublic: enabled,
+          publicSlug: customSlug,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "Failed to update public access.");
+    }
+    const body = await res.json().catch(() => ({}));
+    setIsPublicState(enabled);
+    if (body.form) {
+      setData((current) =>
+        current ? { ...current, form: body.form } : current,
+      );
+    }
+  }
+
   return (
     <div className="space-y-3">
       <nav className="text-xs text-slate-500">
@@ -358,14 +400,34 @@ export default function ProductionFormBuilderPage() {
                 {error}
               </p>
             )}
-            <button
-              type="button"
-              disabled={creatingDraft}
-              onClick={() => void createDraft()}
-              className="mt-4 rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
-            >
-              {creatingDraft ? "Creating draft…" : "Create Draft from Published"}
-            </button>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              {latestPublished && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewVersion(latestPublished)}
+                    className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                  >
+                    ▷ Preview Published Form
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShareDialogOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800 shadow-sm hover:bg-emerald-100"
+                  >
+                    ↗ Share Form Link
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                disabled={creatingDraft}
+                onClick={() => void createDraft()}
+                className="rounded bg-emerald-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50 hover:bg-emerald-800"
+              >
+                {creatingDraft ? "Creating draft…" : "Create Draft from Published"}
+              </button>
+            </div>
           </div>
 
           {versions.length > 0 && (
@@ -385,7 +447,7 @@ export default function ProductionFormBuilderPage() {
                       <th className="p-3">Release Date</th>
                       <th className="p-3">Author</th>
                       <th className="p-3">Change Note</th>
-                      <th className="p-3">Schema</th>
+                      <th className="p-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -420,7 +482,15 @@ export default function ProductionFormBuilderPage() {
                         <td className="p-3 text-slate-700">
                           {v.change_note || "—"}
                         </td>
-                        <td className="p-3">
+                        <td className="p-3 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewVersion(v)}
+                            className="rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                            title={`Preview Version ${v.version_number}`}
+                          >
+                            ▷ Preview
+                          </button>
                           <button
                             type="button"
                             onClick={() => setViewingSchema(v)}
@@ -456,6 +526,12 @@ export default function ProductionFormBuilderPage() {
           onPublish={publishDraft}
           versions={versions}
           onLoadVersions={loadVersions}
+          isPublic={isFormPublic}
+          publicSlug={
+            (data.form as any).public_slug ||
+            latestPublished?.schema_jsonb?.settings?.publicAccess?.customSlug
+          }
+          onTogglePublicAccess={handleTogglePublicAccess}
         />
       )}
 
@@ -507,6 +583,30 @@ export default function ProductionFormBuilderPage() {
             </div>
           </div>
         </div>
+      )}
+
+      <PublishedPreviewModal
+        isOpen={Boolean(previewVersion)}
+        onClose={() => setPreviewVersion(null)}
+        version={previewVersion}
+        lookupProvider={lookupProvider}
+      />
+
+      {data && (
+        <ShareFormDialog
+          isOpen={shareDialogOpen}
+          onClose={() => setShareDialogOpen(false)}
+          formId={formId}
+          formTitle={data.form.title}
+          formKey={data.form.key}
+          customSlug={
+            (data.form as any).public_slug ||
+            latestPublished?.schema_jsonb?.settings?.publicAccess?.customSlug
+          }
+          publishedVersionNumber={latestPublished?.version_number}
+          isPublic={isFormPublic}
+          onTogglePublicAccess={handleTogglePublicAccess}
+        />
       )}
     </div>
   );

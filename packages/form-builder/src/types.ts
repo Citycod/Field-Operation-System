@@ -75,6 +75,9 @@ export interface FormBuilderProps {
   dataSources?: readonly BuilderDataSourceOption[];
   organizationMembers?: readonly BuilderMemberOption[];
   lookupProvider?: LookupProvider;
+  isPublic?: boolean;
+  publicSlug?: string | null;
+  onTogglePublicAccess?: (enabled: boolean) => void | Promise<void>;
 }
 
 export interface BuilderValidation extends ValidationResult {

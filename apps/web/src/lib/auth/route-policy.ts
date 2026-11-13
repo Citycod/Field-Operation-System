@@ -6,11 +6,16 @@ export function isBusinessSignupPage(pathname: string): boolean {
   return pathname === '/business/signup' || pathname.startsWith('/business/signup/');
 }
 
+export function isPublicFormPage(pathname: string): boolean {
+  return pathname === '/f' || pathname.startsWith('/f/');
+}
+
 export function isProtectedPage(pathname: string): boolean {
   if (pathname.startsWith('/api/') || pathname === '/api') return false;
   if (pathname.startsWith('/dev/') || pathname === '/dev') return false;
   if (pathname.startsWith('/auth/') || pathname === '/auth') return false;
   if (isBusinessSignupPage(pathname)) return false;
+  if (isPublicFormPage(pathname)) return false;
   return !isPublicPage(pathname);
 }
 

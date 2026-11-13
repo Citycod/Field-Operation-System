@@ -296,4 +296,116 @@ export class SupabaseFormRepository implements FormRepository {
 
     return newDraft as unknown as FormVersionEntity;
   }
+
+  async getPublicForm(
+    slugOrId: string,
+  ): Promise<{ form: FormEntity; publishedVersion: FormVersionEntity } | null> {
+    const supabase = this.client();
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        slugOrId,
+      );
+
+    let formData: any = null;
+
+    if (isUuid) {
+      const { data, error } = await (supabase.from('forms') as any)
+        .select('*')
+        .is('archived_at', null)
+        .eq('status', 'active')
+        .eq('is_public', true)
+        .eq('id', slugOrId)
+        .maybeSingle();
+      if (!error && data) formData = data;
+    } else {
+      // Match globally-unique custom public_slug first (normalized lowercase), then unique active public key
+      const normalizedSlug = slugOrId.trim().toLowerCase();
+      const { data: slugMatch, error: slugError } = await (supabase.from('forms') as any)
+        .select('*')
+        .is('archived_at', null)
+        .eq('status', 'active')
+        .eq('is_public', true)
+        .eq('public_slug', normalizedSlug)
+        .maybeSingle();
+
+      if (!slugError && slugMatch) {
+        formData = slugMatch;
+      } else {
+        const { data: keyMatches, error: keyError } = await (supabase.from('forms') as any)
+          .select('*')
+          .is('archived_at', null)
+          .eq('status', 'active')
+          .eq('is_public', true)
+          .eq('key', slugOrId)
+          .limit(2);
+
+        if (!keyError && Array.isArray(keyMatches) && keyMatches.length === 1) {
+          formData = keyMatches[0];
+        }
+      }
+    }
+
+    if (!formData) return null;
+
+    const form = formData as FormEntity;
+    if (!form.current_published_version_id) return null;
+
+    // Enforce active organization status (suspended/archived orgs must not expose public forms)
+    const { data: orgData, error: orgError } = await supabase
+      .from('organizations')
+      .select('id,status')
+      .eq('id', form.organization_id)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (orgError || !orgData) return null;
+
+    const { data: versionData, error: versionError } = await supabase
+      .from('form_versions')
+      .select('*')
+      .eq('id', form.current_published_version_id)
+      .eq('form_id', form.id)
+      .eq('organization_id', form.organization_id)
+      .eq('status', 'published')
+      .single();
+
+    if (versionError || !versionData) return null;
+
+    return {
+      form,
+      publishedVersion: versionData as unknown as FormVersionEntity,
+    };
+  }
+
+  async setFormPublicAccess(params: {
+    formId: string;
+    organizationId: string;
+    isPublic: boolean;
+    publicSlug?: string;
+  }): Promise<FormEntity> {
+    const supabase = this.client();
+    const updatePayload: Record<string, unknown> = {
+      is_public: params.isPublic,
+    };
+    if (params.publicSlug !== undefined) {
+      updatePayload.public_slug = params.publicSlug;
+    }
+
+    const { data, error } = await (supabase.from('forms') as any)
+      .update(updatePayload)
+      .eq('id', params.formId)
+      .eq('organization_id', params.organizationId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(
+        error?.message
+          ? `Failed to update public access settings: ${error.message}`
+          : 'Form not found or public access update failed.',
+      );
+    }
+
+    return data as FormEntity;
+  }
 }

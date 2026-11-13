@@ -101,6 +101,68 @@ export function validateFormSettings(
     }
   }
 
+  if (s.publicAccess !== undefined) {
+    if (
+      typeof s.publicAccess !== 'object' ||
+      s.publicAccess === null ||
+      Array.isArray(s.publicAccess)
+    ) {
+      errors.push({
+        path: `${path}.publicAccess`,
+        code: 'INVALID_SETTINGS_PUBLIC_ACCESS',
+        message: 'publicAccess must be an object',
+      });
+    } else {
+      const pa = s.publicAccess as Record<string, unknown>;
+      if (pa.enabled !== undefined && typeof pa.enabled !== 'boolean') {
+        errors.push({
+          path: `${path}.publicAccess.enabled`,
+          code: 'INVALID_SETTINGS_PUBLIC_ACCESS_ENABLED',
+          message: 'enabled must be a boolean',
+        });
+      }
+      if (pa.customSlug !== undefined) {
+        if (typeof pa.customSlug !== 'string') {
+          errors.push({
+            path: `${path}.publicAccess.customSlug`,
+            code: 'INVALID_SETTINGS_PUBLIC_SLUG',
+            message: 'customSlug must be a string',
+          });
+        } else if (
+          pa.customSlug.length > 0 &&
+          !/^[a-z0-9][a-z0-9-_]{2,60}$/i.test(pa.customSlug)
+        ) {
+          errors.push({
+            path: `${path}.publicAccess.customSlug`,
+            code: 'INVALID_SETTINGS_PUBLIC_SLUG_FORMAT',
+            message:
+              'customSlug must be between 3 and 60 alphanumeric characters with dashes or underscores',
+          });
+        }
+      }
+      if (
+        pa.allowAnonymousSubmissions !== undefined &&
+        typeof pa.allowAnonymousSubmissions !== 'boolean'
+      ) {
+        errors.push({
+          path: `${path}.publicAccess.allowAnonymousSubmissions`,
+          code: 'INVALID_SETTINGS_ANONYMOUS_SUBMISSIONS',
+          message: 'allowAnonymousSubmissions must be a boolean',
+        });
+      }
+      if (
+        pa.requireCaptcha !== undefined &&
+        typeof pa.requireCaptcha !== 'boolean'
+      ) {
+        errors.push({
+          path: `${path}.publicAccess.requireCaptcha`,
+          code: 'INVALID_SETTINGS_CAPTCHA',
+          message: 'requireCaptcha must be a boolean',
+        });
+      }
+    }
+  }
+
   if (s.notifications !== undefined) {
     if (
       typeof s.notifications !== 'object' ||

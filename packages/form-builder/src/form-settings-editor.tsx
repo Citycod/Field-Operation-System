@@ -140,6 +140,18 @@ export function FormSettingsEditor({
     });
   };
 
+  const updatePublicAccess = (
+    patch: Partial<NonNullable<FormSettings["publicAccess"]>>,
+  ) => {
+    const currentPublic = settings.publicAccess || {};
+    updateSettings({
+      publicAccess: {
+        ...currentPublic,
+        ...patch,
+      },
+    });
+  };
+
   const updateNotifications = (
     patch: Partial<NonNullable<FormSettings["notifications"]>>,
   ) => {
@@ -474,6 +486,105 @@ export function FormSettingsEditor({
                 </div>
               </label>
             </div>
+          </div>
+
+          {/* Section: Public Link & Sharing */}
+          <div className="fb-settings-card">
+            <div className="fb-settings-card-header">
+              <h3>Public Link & Sharing</h3>
+              <p>Configure public access and anonymous submission settings for this form.</p>
+            </div>
+            <div className="fb-settings-checkbox-row">
+              <label className="fb-checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.publicAccess?.enabled)}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    updatePublicAccess({ enabled: e.target.checked })
+                  }
+                />
+                <div>
+                  <strong>Enable Public Form Sharing</strong>
+                  <p>
+                    Allow respondents outside the organization to access and submit this form via a public link.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {Boolean(settings.publicAccess?.enabled) && (
+              <div className="fb-settings-subgroup">
+                <div className="fb-settings-grid">
+                  <label className="fb-field-group">
+                    <span className="fb-label">Custom URL Slug (Optional)</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. visitor-registration"
+                      maxLength={60}
+                      disabled={disabled}
+                      value={settings.publicAccess?.customSlug || ""}
+                      onChange={(e) =>
+                        updatePublicAccess({
+                          customSlug: e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ""),
+                        })
+                      }
+                      className="fb-input"
+                    />
+                    <span className="fb-text-muted fb-text-xs">
+                      Alphanumeric with hyphens/underscores (3–60 chars). Defaults to semantic form key.
+                    </span>
+                  </label>
+
+                  <div className="fb-field-group">
+                    <label className="fb-checkbox-label mt-2">
+                      <input
+                        type="checkbox"
+                        checked={settings.publicAccess?.allowAnonymousSubmissions !== false}
+                        disabled={disabled}
+                        onChange={(e) =>
+                          updatePublicAccess({ allowAnonymousSubmissions: e.target.checked })
+                        }
+                      />
+                      <div>
+                        <strong>Allow Anonymous Submissions</strong>
+                        <p>Permit submissions without requiring user identification or account login.</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  <label className="fb-field-group full-width">
+                    <span className="fb-label">Confirmation Title</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Submission Received"
+                      maxLength={100}
+                      disabled={disabled}
+                      value={settings.publicAccess?.successTitle || ""}
+                      onChange={(e) =>
+                        updatePublicAccess({ successTitle: e.target.value })
+                      }
+                      className="fb-input"
+                    />
+                  </label>
+
+                  <label className="fb-field-group full-width">
+                    <span className="fb-label">Confirmation Message</span>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. Thank you! Your submission has been securely recorded."
+                      maxLength={500}
+                      disabled={disabled}
+                      value={settings.publicAccess?.successMessage || ""}
+                      onChange={(e) =>
+                        updatePublicAccess({ successMessage: e.target.value })
+                      }
+                      className="fb-textarea"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

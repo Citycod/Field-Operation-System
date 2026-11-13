@@ -43,6 +43,8 @@ import { FormSettingsEditor } from "./form-settings-editor";
 import { RulesEditor } from "./rules-editor";
 import { ListViewEditor } from "./list-view-editor";
 import { WorkflowEditor } from "./workflow-editor";
+import { PublishedPreviewModal } from "./published-preview-modal";
+import { ShareFormDialog } from "./share-form-dialog";
 
 const WIDTHS = ["full", "half", "third", "quarter"] as const;
 const MODULE_TABS: BuilderModuleTab[] = [
@@ -142,6 +144,9 @@ export function FormBuilder({
   dataSources,
   organizationMembers,
   lookupProvider,
+  isPublic,
+  publicSlug,
+  onTogglePublicAccess,
 }: FormBuilderProps) {
   const [schema, setSchema] = useState(() => cloneSchema(initialSchema));
   const [activeModule, setActiveModule] = useState<BuilderModuleTab>("Design");
@@ -160,6 +165,19 @@ export function FormBuilder({
   const [publishValidation, setPublishValidation] = useState<ReturnType<
     typeof validatePublishableSchema
   > | null>(null);
+
+  const [previewPublishedModalOpen, setPreviewPublishedModalOpen] =
+    useState(false);
+  const [previewingPublishedVersion, setPreviewingPublishedVersion] =
+    useState<FormVersionSummary | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+
+  const latestPublishedVersion = useMemo(() => {
+    const published = loadedVersions
+      .filter((v) => v.status === "published")
+      .sort((a, b) => b.version_number - a.version_number);
+    return published[0] || null;
+  }, [loadedVersions]);
 
   useEffect(() => {
     if (versions) {
@@ -826,6 +844,29 @@ export function FormBuilder({
           <button type="button" onClick={openPreview}>
             ▷ Preview
           </button>
+          {latestPublishedVersion && (
+            <>
+              <button
+                type="button"
+                className="fb-btn-preview-published"
+                onClick={() => {
+                  setPreviewingPublishedVersion(latestPublishedVersion);
+                  setPreviewPublishedModalOpen(true);
+                }}
+                title={`Preview published snapshot v${latestPublishedVersion.version_number}`}
+              >
+                ▷ Preview Published
+              </button>
+              <button
+                type="button"
+                className="fb-btn-share"
+                onClick={() => setShareDialogOpen(true)}
+                title="Share published form link"
+              >
+                ↗ Share
+              </button>
+            </>
+          )}
           {onPublish && (
             <button
               type="button"
@@ -1270,7 +1311,18 @@ export function FormBuilder({
                       <span className="fb-muted-dash">—</span>
                     )}
                   </td>
-                  <td>
+                  <td className="fb-version-actions-cell">
+                    <button
+                      type="button"
+                      className="fb-btn-preview-version"
+                      onClick={() => {
+                        setPreviewingPublishedVersion(v);
+                        setPreviewPublishedModalOpen(true);
+                      }}
+                      title={`Preview Version ${v.version_number}`}
+                    >
+                      ▷ Preview
+                    </button>
                     <button
                       type="button"
                       className="fb-btn-schema"
@@ -1560,6 +1612,53 @@ export function FormBuilder({
           </div>
         </div>
       )}
+
+      <PublishedPreviewModal
+        isOpen={previewPublishedModalOpen}
+        onClose={() => {
+          setPreviewPublishedModalOpen(false);
+          setPreviewingPublishedVersion(null);
+        }}
+        version={previewingPublishedVersion}
+        lookupProvider={lookupProvider}
+      />
+
+      <ShareFormDialog
+        isOpen={shareDialogOpen}
+        onClose={() => setShareDialogOpen(false)}
+        formId={schema.form.id || ""}
+        formTitle={
+          latestPublishedVersion?.schema_jsonb?.form?.title || schema.form.title
+        }
+        formKey={schema.form.key}
+        customSlug={
+          publicSlug ||
+          latestPublishedVersion?.schema_jsonb?.settings?.publicAccess?.customSlug
+        }
+        publishedVersionNumber={latestPublishedVersion?.version_number}
+        isPublic={
+          typeof isPublic === "boolean"
+            ? isPublic
+            : Boolean(schema.settings?.publicAccess?.enabled)
+        }
+        onTogglePublicAccess={async (enabled) => {
+          if (onTogglePublicAccess) {
+            await onTogglePublicAccess(enabled);
+          } else {
+            const nextSettings = {
+              ...schema.settings,
+              publicAccess: {
+                ...schema.settings?.publicAccess,
+                enabled,
+              },
+            };
+            update({
+              ...schema,
+              settings: nextSettings,
+            });
+          }
+        }}
+      />
     </div>
   );
 }

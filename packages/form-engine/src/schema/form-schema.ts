@@ -33,8 +33,19 @@ export interface FormPermissionDefinition {
   manageFormRoles?: string[];
 }
 
+export interface PublicFormSettings {
+  enabled?: boolean;
+  customSlug?: string;
+  allowAnonymousSubmissions?: boolean;
+  requireCaptcha?: boolean;
+  expiryDate?: string;
+  successTitle?: string;
+  successMessage?: string;
+}
+
 export interface FormSettings {
   allowDrafts?: boolean;
+  publicAccess?: PublicFormSettings;
   referenceNumber?: {
     enabled?: boolean;
     prefix?: string;

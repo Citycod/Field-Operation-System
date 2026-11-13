@@ -161,14 +161,34 @@ export default function FormLibraryPage() {
                       {new Date(form.updated_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        className="font-semibold text-emerald-700"
-                        href={`/forms/${form.id}/builder`}
-                      >
-                        {form.draft_version_number
-                          ? "Open builder"
-                          : "View form"}
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        {Boolean(form.published_version_number) && (
+                          <>
+                            <Link
+                              className="font-medium text-slate-600 hover:text-slate-900"
+                              href={`/forms/${form.id}/preview`}
+                              title="Preview published form"
+                            >
+                              ▷ Preview
+                            </Link>
+                            <Link
+                              className="font-medium text-emerald-700 hover:underline"
+                              href={`/forms/${form.id}/builder`}
+                              title="Open builder & sharing"
+                            >
+                              Share
+                            </Link>
+                          </>
+                        )}
+                        <Link
+                          className="font-semibold text-emerald-700"
+                          href={`/forms/${form.id}/builder`}
+                        >
+                          {form.draft_version_number
+                            ? "Open builder"
+                            : "View form"}
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -222,12 +242,22 @@ export default function FormLibraryPage() {
                     </dd>
                   </div>
                 </dl>
-                <Link
-                  className="mt-3 inline-flex min-h-10 w-full items-center justify-center rounded border border-emerald-700 font-semibold text-emerald-700"
-                  href={`/forms/${form.id}/builder`}
-                >
-                  {form.draft_version_number ? "Open builder" : "View form"}
-                </Link>
+                <div className="mt-3 flex gap-2">
+                  {Boolean(form.published_version_number) && (
+                    <Link
+                      className="inline-flex min-h-10 flex-1 items-center justify-center rounded border border-slate-300 bg-white font-semibold text-slate-700 text-xs"
+                      href={`/forms/${form.id}/preview`}
+                    >
+                      ▷ Preview
+                    </Link>
+                  )}
+                  <Link
+                    className="inline-flex min-h-10 flex-1 items-center justify-center rounded border border-emerald-700 font-semibold text-emerald-700 text-xs"
+                    href={`/forms/${form.id}/builder`}
+                  >
+                    {form.draft_version_number ? "Open builder" : "View form"}
+                  </Link>
+                </div>
               </article>
             ))}
             {!visible.length && (

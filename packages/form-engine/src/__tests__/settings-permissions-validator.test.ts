@@ -120,6 +120,44 @@ describe('Settings & Permissions Validation', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].code).toBe('INVALID_SETTINGS_NOTIFICATION_TOGGLE');
     });
+
+    it('accepts valid publicAccess settings', () => {
+      const valid = {
+        publicAccess: {
+          enabled: true,
+          customSlug: 'visitor-registration-2026',
+          allowAnonymousSubmissions: true,
+          requireCaptcha: false,
+          successTitle: 'Thank You',
+          successMessage: 'Your registration has been submitted successfully.',
+        },
+      };
+      expect(validateFormSettings(valid)).toEqual([]);
+    });
+
+    it('rejects invalid publicAccess settings types and formats', () => {
+      expect(validateFormSettings({ publicAccess: 'invalid' as any })[0]?.code).toBe(
+        'INVALID_SETTINGS_PUBLIC_ACCESS',
+      );
+      expect(validateFormSettings({ publicAccess: { enabled: 'yes' as any } })[0]?.code).toBe(
+        'INVALID_SETTINGS_PUBLIC_ACCESS_ENABLED',
+      );
+      expect(validateFormSettings({ publicAccess: { customSlug: 123 as any } })[0]?.code).toBe(
+        'INVALID_SETTINGS_PUBLIC_SLUG',
+      );
+      expect(validateFormSettings({ publicAccess: { customSlug: 'ab' } })[0]?.code).toBe(
+        'INVALID_SETTINGS_PUBLIC_SLUG_FORMAT',
+      );
+      expect(
+        validateFormSettings({ publicAccess: { customSlug: 'invalid slug with spaces' } })[0]?.code,
+      ).toBe('INVALID_SETTINGS_PUBLIC_SLUG_FORMAT');
+      expect(
+        validateFormSettings({ publicAccess: { allowAnonymousSubmissions: 'no' as any } })[0]?.code,
+      ).toBe('INVALID_SETTINGS_ANONYMOUS_SUBMISSIONS');
+      expect(validateFormSettings({ publicAccess: { requireCaptcha: 'yes' as any } })[0]?.code).toBe(
+        'INVALID_SETTINGS_CAPTCHA',
+      );
+    });
   });
 
   describe('validateFormPermissions', () => {

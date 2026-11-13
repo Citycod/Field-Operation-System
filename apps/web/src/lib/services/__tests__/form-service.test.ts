@@ -241,6 +241,29 @@ class MockFormRepository implements FormRepository {
 
     return newVersion;
   }
+
+  async getPublicForm(slugOrId: string): Promise<{ form: FormEntity; publishedVersion: FormVersionEntity } | null> {
+    const form = [...this.forms.values()].find(
+      (f) => (f.id === slugOrId || f.key === slugOrId || f.public_slug === slugOrId) && !f.archived_at,
+    );
+    if (!form || !form.current_published_version_id) return null;
+    const version = this.versions.get(form.current_published_version_id);
+    if (!version || version.status !== 'published') return null;
+    return { form, publishedVersion: version };
+  }
+
+  async setFormPublicAccess(params: {
+    formId: string;
+    organizationId: string;
+    isPublic: boolean;
+    publicSlug?: string;
+  }): Promise<FormEntity> {
+    const form = await this.getFormById(params.formId, params.organizationId);
+    if (!form) throw new Error('Form not found');
+    form.is_public = params.isPublic;
+    if (params.publicSlug !== undefined) form.public_slug = params.publicSlug;
+    return form;
+  }
 }
 
 describe('FormService', () => {

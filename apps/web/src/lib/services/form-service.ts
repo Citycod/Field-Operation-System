@@ -175,6 +175,138 @@ export class FormService {
     };
   }
 
+  async getPublishedVersionForPreview(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+  }) {
+    await this.checkMembership(params.userId, params.organizationId);
+    const form = await this.formRepository.getFormById(
+      params.formId,
+      params.organizationId,
+    );
+    if (!form) {
+      throw new Error(`Form not found in organization ${params.organizationId}`);
+    }
+    const publishedVersion = await this.formRepository.getPublishedVersion(
+      params.formId,
+      params.organizationId,
+    );
+    if (!publishedVersion) {
+      throw new Error('This form does not have an active published version.');
+    }
+    return { form, publishedVersion };
+  }
+
+  async getPublicPublishedForm(slugOrId: string) {
+    const result = await this.formRepository.getPublicForm(slugOrId);
+    if (!result) {
+      throw new Error('Form not found or unavailable.');
+    }
+
+    const { form, publishedVersion } = result;
+    const schema = publishedVersion.schema_jsonb;
+
+    if (form.is_public !== true) {
+      throw new Error('This form is private and cannot be accessed publicly.');
+    }
+
+    const expiryDate = schema?.settings?.publicAccess?.expiryDate;
+    if (expiryDate) {
+      const expiresAt = Date.parse(expiryDate);
+      if (Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+        throw new Error('This public form link has expired.');
+      }
+    }
+
+    // Strip internal configuration (permissions, workflow, list view) before exposing publicly
+    const publicSchema: FormSchemaV1 = {
+      ...schema,
+      permissions: {},
+      workflow: null,
+      listView: { columns: [] },
+    };
+
+    return {
+      form: {
+        id: form.id,
+        key: form.key,
+        title: schema?.form?.title || form.title,
+        description: schema?.form?.description || form.description,
+        is_public: true,
+        public_slug: form.public_slug ?? null,
+      },
+      publishedVersion: {
+        id: publishedVersion.id,
+        version_number: publishedVersion.version_number,
+        schema_version: publishedVersion.schema_version,
+        schema_jsonb: publicSchema,
+      },
+    };
+  }
+
+  async setPublicAccess(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+    isPublic: boolean;
+    publicSlug?: string;
+  }) {
+    const auth = await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'publish_form',
+    });
+
+    if (params.isPublic && !auth.form.current_published_version_id) {
+      throw new Error('Cannot enable public access before the form has been published.');
+    }
+    if (params.isPublic && (auth.form.archived_at || auth.form.status !== 'active')) {
+      throw new Error('Cannot enable public access on an inactive or archived form.');
+    }
+
+    const RESERVED_PUBLIC_SLUGS = new Set([
+      'api',
+      'login',
+      'auth',
+      'dashboard',
+      'forms',
+      'admin',
+      'f',
+      'dev',
+      'business',
+      'settings',
+      'users',
+      'organizations',
+      'profile',
+      'health',
+    ]);
+
+    let normalizedSlug: string | undefined;
+    if (params.publicSlug !== undefined) {
+      const trimmed = params.publicSlug.trim().toLowerCase();
+      if (trimmed.length > 0) {
+        if (!/^[a-z0-9][a-z0-9-_]{2,60}$/.test(trimmed)) {
+          throw new Error(
+            'Public slug must be 3-61 characters and contain only letters, numbers, hyphens, or underscores.',
+          );
+        }
+        if (RESERVED_PUBLIC_SLUGS.has(trimmed)) {
+          throw new Error('Public slug uses a reserved platform route name.');
+        }
+        normalizedSlug = trimmed;
+      }
+    }
+
+    return this.formRepository.setFormPublicAccess({
+      formId: params.formId,
+      organizationId: params.organizationId,
+      isPublic: params.isPublic,
+      publicSlug: normalizedSlug,
+    });
+  }
+
   async createForm(params: {
     userId: string;
     organizationId: string;
@@ -267,7 +399,7 @@ export class FormService {
     versionId: string;
     changeNote?: string;
   }) {
-    await this.authorizeFormAction({
+    const auth = await this.authorizeFormAction({
       userId: params.userId,
       organizationId: params.organizationId,
       formId: params.formId,
@@ -328,6 +460,22 @@ export class FormService {
       userId: params.userId,
       changeNote: params.changeNote,
     });
+
+    const customSlug = draft.schema_jsonb?.settings?.publicAccess?.customSlug
+      ?.trim()
+      .toLowerCase();
+    if (
+      customSlug &&
+      /^[a-z0-9][a-z0-9-_]{2,60}$/.test(customSlug) &&
+      auth.form.public_slug !== customSlug
+    ) {
+      await this.formRepository.setFormPublicAccess({
+        formId: params.formId,
+        organizationId: params.organizationId,
+        isPublic: Boolean(auth.form.is_public),
+        publicSlug: customSlug,
+      });
+    }
   }
 
   async listVersions(params: {
