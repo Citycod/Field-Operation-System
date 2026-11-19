@@ -216,6 +216,35 @@ describe('Draft Validator', () => {
     const res = validateDraftSchema(schema);
     expect(res.valid).toBe(true);
   });
+
+  // --- Dropdown Option Keys Uniqueness ---
+  it('rejects dropdown field with duplicate option keys', () => {
+    const schema: FormSchemaV1 = {
+      ...MINIMAL_VALID_SCHEMA,
+      header: {
+        sections: [{
+          id: 's1',
+          key: 'sec1',
+          title: 'General',
+          order: 0,
+          fields: [{
+            id: 'f1',
+            key: 'category',
+            type: 'dropdown',
+            label: 'Category',
+            order: 0,
+            options: [
+              { key: 'supplies', value: 'supplies', label: 'Office Supplies' },
+              { key: 'supplies', value: 'supplies', label: 'Other Supplies' },
+            ],
+          }],
+        }],
+      },
+    };
+    const res = validateDraftSchema(schema);
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.code === 'DUPLICATE_OPTION_KEY')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -236,23 +265,30 @@ describe('Publish Validator', () => {
     expect(res.errors.filter((e) => e.code === 'BROKEN_RULE_REF').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('blocks broken calculation references', () => {
+  it('blocks broken calculation references in predefined operations and custom formulas', () => {
     const schema: FormSchemaV1 = {
       ...MINIMAL_VALID_SCHEMA,
       tabs: [{
         id: 't1', key: 'tk1', title: 'T', type: 'form', order: 0,
         sections: [{
           id: 's1', key: 'sk1', title: 'S', order: 0,
-          fields: [{
-            id: 'f1', key: 'fk1', type: 'calculated', label: 'Calc', order: 0,
-            calculationConfig: { operation: 'add', operands: ['ghost_field_1', 'ghost_field_2'] },
-          }],
+          fields: [
+            {
+              id: 'f1', key: 'fk1', type: 'calculated', label: 'Calc 1', order: 0,
+              calculationConfig: { operation: 'add', operands: ['ghost_field_1'] },
+            },
+            {
+              id: 'f2', key: 'fk2', type: 'calculated', label: 'Calc 2', order: 1,
+              calculationConfig: { operation: 'custom', formula: 'ghost_var * 2' },
+            },
+          ],
         }],
       }],
     };
     const res = validatePublishableSchema(schema);
     expect(res.valid).toBe(false);
-    expect(res.errors.some((e) => e.code === 'BROKEN_CALCULATION_REF')).toBe(true);
+    const brokenRefs = res.errors.filter((e) => e.code === 'BROKEN_CALCULATION_REF');
+    expect(brokenRefs.length).toBeGreaterThanOrEqual(2);
   });
 
   it('blocks broken list view references', () => {

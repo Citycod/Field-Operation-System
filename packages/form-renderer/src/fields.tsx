@@ -5,6 +5,7 @@ import type {
   FieldType,
   OptionItem,
 } from "@field/form-engine";
+import { normalizeOptionItem } from "@field/form-engine";
 import { Input, Button } from "@field/ui";
 import type { FieldValue, LookupProvider, LocalFile } from "./types";
 import { filesFromList, fileError } from "./model";
@@ -89,19 +90,29 @@ function DateField(p: FieldProps) {
   );
 }
 function DropdownField(p: FieldProps) {
-  const options = p.field.type === "dropdown" ? p.field.options : [];
+  const rawOptions = p.field.type === "dropdown" ? p.field.options : [];
+  const options = (rawOptions ?? []).map((o) => normalizeOptionItem(o));
+  const currentVal = text(p.value);
+  const matched = options.find(
+    (o) => o.key === currentVal || o.value === currentVal || o.label === currentVal,
+  );
+  const selectedValue = matched ? (matched.key || matched.value) : currentVal;
+
   return (
     <select
       {...attrs(p)}
-      value={text(p.value)}
+      value={selectedValue}
       onChange={(e) => p.onChange(e.target.value)}
     >
       <option value="">Select an option</option>
-      {options.map((o, i) => (
-        <option key={`${i}-${o.value}`} value={o.value}>
-          {o.label}
-        </option>
-      ))}
+      {options.map((o, i) => {
+        const val = o.key || o.value;
+        return (
+          <option key={`${i}-${val}`} value={val}>
+            {o.label}
+          </option>
+        );
+      })}
     </select>
   );
 }
@@ -204,12 +215,15 @@ function LookupField(p: FieldProps) {
           !Array.isArray(items) ||
           items.some(
             (o) =>
-              !o || typeof o.label !== "string" || typeof o.value !== "string",
+              !o ||
+              typeof o.label !== "string" ||
+              typeof (o.value ?? o.key) !== "string",
           )
         )
           throw new Error("Invalid options");
-        setOptions(items);
-        p.onLookupOptionsLoaded?.(p.field.id, items);
+        const normalized = items.map((o) => normalizeOptionItem(o));
+        setOptions(normalized);
+        p.onLookupOptionsLoaded?.(p.field.id, normalized);
         setStatus("ready");
       })
       .catch(() => {
@@ -217,25 +231,35 @@ function LookupField(p: FieldProps) {
       });
     return () => controller.abort();
   }, [p.lookupProvider, config, p.field.id, retry]);
+  const currentVal = text(p.value);
+  const matched = options.find(
+    (o) => o.key === currentVal || o.value === currentVal || o.label === currentVal,
+  );
+  const selectedValue = matched ? (matched.key || matched.value) : currentVal;
+
   return (
     <>
       <select
         {...attrs(p)}
         disabled={p.disabled || status !== "ready"}
-        value={text(p.value)}
+        value={selectedValue}
         onChange={(e) => p.onChange(e.target.value)}
       >
         <option value="">
           {status === "loading" ? "Loading options…" : "Select an option"}
         </option>
-        {text(p.value) && !options.some((o) => o.value === p.value) && (
-          <option value={text(p.value)}>{text(p.value)}</option>
-        )}
-        {options.map((o, i) => (
-          <option key={`${i}-${o.value}`} value={o.value}>
-            {o.label}
-          </option>
-        ))}
+        {selectedValue &&
+          !options.some((o) => o.key === selectedValue || o.value === selectedValue) && (
+            <option value={selectedValue}>{selectedValue}</option>
+          )}
+        {options.map((o, i) => {
+          const val = o.key || o.value;
+          return (
+            <option key={`${i}-${val}`} value={val}>
+              {o.label}
+            </option>
+          );
+        })}
       </select>
       {status === "error" && (
         <div role="alert" className="fr-error">

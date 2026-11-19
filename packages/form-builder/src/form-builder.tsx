@@ -12,6 +12,16 @@ import {
   type FormTabUnion,
   type HeaderSectionDefinition,
   type TabType,
+  type OptionItem,
+  type CalculationConfig,
+  normalizeOptionItem,
+  generateUniqueOptionKey,
+  slugifyOptionKey,
+  resolveOptionLabel,
+  parseFormula,
+  evaluateFormula,
+  extractFormulaFieldReferences,
+  refactorFormulaIdentifier,
 } from "@field/form-engine";
 import { FormRenderer } from "@field/form-renderer";
 import {
@@ -508,10 +518,73 @@ export function FormBuilder({
     });
   };
 
+  const cascadeFormulaKeyRename = (
+    schemaToUpdate: FormSchemaV1,
+    fromKey: string,
+    toKey: string,
+  ): FormSchemaV1 => {
+    if (fromKey === toKey) return schemaToUpdate;
+    const updateCalc = (f: FieldDefinition | DetailsColumnDefinition) => {
+      if (f.type !== "calculated" || !("calculationConfig" in f) || !f.calculationConfig) {
+        return f;
+      }
+      const cfg = f.calculationConfig;
+      const newFormula = cfg.formula
+        ? refactorFormulaIdentifier(cfg.formula, fromKey, toKey)
+        : cfg.formula;
+      const newOperands = cfg.operands
+        ? cfg.operands.map((op) => (op === fromKey ? toKey : op))
+        : cfg.operands;
+      return {
+        ...f,
+        calculationConfig: {
+          ...cfg,
+          formula: newFormula,
+          operands: newOperands,
+        },
+      };
+    };
+
+    return {
+      ...schemaToUpdate,
+      header: {
+        ...schemaToUpdate.header,
+        sections: schemaToUpdate.header.sections.map((sec) => ({
+          ...sec,
+          fields: sec.fields.map(updateCalc) as FieldDefinition[],
+        })),
+      },
+      tabs: schemaToUpdate.tabs.map((tab) => {
+        if (tab.type === "form") {
+          return {
+            ...tab,
+            sections: tab.sections.map((sec) => ({
+              ...sec,
+              fields: sec.fields.map(updateCalc) as FieldDefinition[],
+            })),
+          };
+        }
+        if (tab.type === "details") {
+          return {
+            ...tab,
+            configuration: {
+              ...tab.configuration,
+              columns: tab.configuration.columns.map(updateCalc) as DetailsColumnDefinition[],
+            },
+          };
+        }
+        return tab;
+      }),
+    };
+  };
+
   const mutateField = (
     changes: Partial<FieldDefinition & DetailsColumnDefinition>,
   ) => {
     if (selection.kind !== "field") return;
+    let oldKey: string | null = null;
+    let newKey: string | null = null;
+
     const applyFieldChanges = <
       T extends FieldDefinition | DetailsColumnDefinition,
     >(
@@ -536,11 +609,16 @@ export function FormBuilder({
           );
         }
       }
+      if (resolvedChanges.key && resolvedChanges.key !== field.key) {
+        oldKey = field.key;
+        newKey = resolvedChanges.key;
+      }
       return { ...field, ...resolvedChanges } as T;
     };
 
+    let nextSchema: FormSchemaV1;
     if (selection.area === "details") {
-      update({
+      nextSchema = {
         ...schema,
         tabs: schema.tabs.map((tab) =>
           tab.id === selection.tabId && tab.type === "details"
@@ -557,11 +635,9 @@ export function FormBuilder({
               }
             : tab,
         ),
-      });
-      return;
-    }
-    update(
-      updateSection(
+      };
+    } else {
+      nextSchema = updateSection(
         schema,
         selection.area,
         selection.sectionId!,
@@ -572,8 +648,13 @@ export function FormBuilder({
           ),
         }),
         selection.tabId,
-      ),
-    );
+      );
+    }
+
+    if (oldKey && newKey && oldKey !== newKey) {
+      nextSchema = cascadeFormulaKeyRename(nextSchema, oldKey, newKey);
+    }
+    update(nextSchema);
   };
 
   const removeField = () => {
@@ -823,6 +904,29 @@ export function FormBuilder({
       // ignore
     }
   };
+
+  const allAvailableFields = useMemo(() => {
+    const list: Array<{ key: string; label: string; type: string }> = [];
+    for (const section of schema.header.sections) {
+      for (const field of section.fields) {
+        list.push({ key: field.key, label: field.label, type: field.type });
+      }
+    }
+    for (const tab of schema.tabs) {
+      if (tab.type === "form") {
+        for (const section of tab.sections) {
+          for (const field of section.fields) {
+            list.push({ key: field.key, label: field.label, type: field.type });
+          }
+        }
+      } else if (tab.type === "details") {
+        for (const col of tab.configuration.columns) {
+          list.push({ key: col.key, label: col.label, type: col.type });
+        }
+      }
+    }
+    return list;
+  }, [schema]);
 
   return (
     <div className="fb-root">
@@ -1153,6 +1257,7 @@ export function FormBuilder({
               field={selectedField}
               details={selection.area === "details"}
               dataSources={dataSources}
+              availableFields={allAvailableFields}
               onChange={mutateField}
               onMove={reorderField}
               onRemove={removeField}
@@ -1989,10 +2094,623 @@ function SectionProperties({
   );
 }
 
+function DropdownOptionsEditor({
+  options: rawOptions,
+  onChange,
+}: {
+  options?: readonly OptionItem[];
+  onChange: (options: OptionItem[]) => void;
+}) {
+  const [newLabel, setNewLabel] = useState("");
+  const [showRaw, setShowRaw] = useState(false);
+  const [rawDraft, setRawDraft] = useState<string | null>(null);
+  const [rawError, setRawError] = useState<string | null>(null);
+
+  const options = useMemo(
+    () => (rawOptions ?? []).map((o) => normalizeOptionItem(o)),
+    [rawOptions],
+  );
+
+  const handleUpdateLabel = (index: number, label: string) => {
+    const next = [...options];
+    const current = next[index];
+    if (!current) return;
+    next[index] = { ...current, label };
+    onChange(next);
+  };
+
+  const handleMove = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= options.length) return;
+    const next = [...options];
+    const item = next[index];
+    next[index] = next[target];
+    next[target] = item;
+    onChange(next);
+  };
+
+  const handleRemove = (index: number) => {
+    const next = options.filter((_, i) => i !== index);
+    onChange(next);
+  };
+
+  const handleAddOption = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const label = newLabel.trim();
+    if (!label) return;
+    const key = generateUniqueOptionKey(label, options);
+    const next = [...options, { key, value: key, label }];
+    onChange(next);
+    setNewLabel("");
+  };
+
+  const rawTextValue = (options ?? [])
+    .map((option) => `${option.label} = ${option.key || option.value}`)
+    .join("\n");
+
+  const handleToggleRaw = () => {
+    if (!showRaw) {
+      setRawDraft(rawTextValue);
+      setRawError(null);
+    } else {
+      setRawDraft(null);
+      setRawError(null);
+    }
+    setShowRaw(!showRaw);
+  };
+
+  const handleRawTextChange = (text: string) => {
+    setRawDraft(text);
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const parsed: OptionItem[] = [];
+    const seenKeys = new Set<string>();
+
+    // Map existing options by label and by canonical key
+    const existingByLabel = new Map<string, OptionItem>();
+    const existingByKey = new Map<string, OptionItem>();
+    for (const opt of options) {
+      const k = opt.key || opt.value;
+      if (opt.label) existingByLabel.set(opt.label, opt);
+      if (k) existingByKey.set(k, opt);
+    }
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const line = lines[lineIdx];
+      let cleanLabel = "";
+      let cleanKey = "";
+
+      if (line.includes("=")) {
+        const parts = line.split("=");
+        cleanLabel = parts[0]?.trim() || "";
+        cleanKey = parts.slice(1).join("=").trim();
+      } else {
+        cleanLabel = line.trim();
+        cleanKey = "";
+      }
+
+      if (!cleanLabel) {
+        setRawError(`Line ${lineIdx + 1}: Display label cannot be empty.`);
+        return;
+      }
+
+      if (cleanKey) {
+        // Enforce valid slug characters for keys
+        if (!/^[a-z0-9][a-z0-9_-]*$/.test(cleanKey)) {
+          setRawError(
+            `Line ${lineIdx + 1}: Invalid key "${cleanKey}". Keys must contain only lowercase letters, numbers, hyphens, and underscores.`,
+          );
+          return;
+        }
+
+        // Prevent changing the key of an existing option whose label matched
+        const existingForLabel = existingByLabel.get(cleanLabel);
+        if (existingForLabel) {
+          const originalKey = existingForLabel.key || existingForLabel.value;
+          if (originalKey && originalKey !== cleanKey) {
+            setRawError(
+              `Line ${lineIdx + 1}: Existing key "${originalKey}" cannot be changed to "${cleanKey}". Only display labels may be edited.`,
+            );
+            return;
+          }
+        }
+      } else {
+        // Auto-generate key if omitted on a new line
+        cleanKey = generateUniqueOptionKey(cleanLabel, parsed);
+      }
+
+      // Enforce duplicate key prevention
+      if (seenKeys.has(cleanKey)) {
+        setRawError(`Duplicate option key "${cleanKey}" is not allowed.`);
+        return;
+      }
+      seenKeys.add(cleanKey);
+
+      parsed.push({
+        key: cleanKey,
+        value: cleanKey,
+        label: cleanLabel,
+      });
+    }
+
+    setRawError(null);
+    onChange(parsed);
+  };
+
+  const prospectiveKey = newLabel.trim()
+    ? generateUniqueOptionKey(newLabel.trim(), options)
+    : "";
+
+  return (
+    <div className="fb-options-manager">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontWeight: 600, fontSize: "12px" }}>Dropdown Options</span>
+        <button
+          type="button"
+          style={{
+            fontSize: "11px",
+            background: "none",
+            border: "none",
+            color: "var(--fb-green)",
+            cursor: "pointer",
+            textDecoration: "underline",
+          }}
+          onClick={handleToggleRaw}
+        >
+          {showRaw ? "Structured View" : "Bulk / Raw View"}
+        </button>
+      </div>
+
+      {showRaw ? (
+        <label>
+          <small>One `Label = key` per line</small>
+          <textarea
+            aria-label="Dropdown options"
+            rows={5}
+            value={rawDraft !== null ? rawDraft : rawTextValue}
+            onChange={(event) => handleRawTextChange(event.target.value)}
+          />
+          {rawError && (
+            <div
+              className="fb-raw-error"
+              role="alert"
+              style={{
+                color: "var(--fb-danger, #d13438)",
+                fontSize: "11px",
+                marginTop: "4px",
+                fontWeight: 500,
+              }}
+            >
+              {rawError}
+            </div>
+          )}
+        </label>
+      ) : (
+        <>
+          {options.length > 0 ? (
+            <div className="fb-options-list" role="list" aria-label="Option rows">
+              {options.map((opt, i) => (
+                <div key={opt.key || `${i}`} className="fb-option-row">
+                  <input
+                    className="fb-option-input"
+                    aria-label={`Option ${i + 1} display name`}
+                    title="User-facing display name"
+                    value={opt.label}
+                    placeholder="Display Name"
+                    onChange={(e) => handleUpdateLabel(i, e.target.value)}
+                  />
+                  <span
+                    className="fb-option-key-badge"
+                    title={`Immutable system key: ${opt.key || opt.value}`}
+                  >
+                    🔒 {opt.key || opt.value}
+                  </span>
+                  <div className="fb-option-actions">
+                    <button
+                      type="button"
+                      className="fb-option-btn-icon"
+                      title="Move up"
+                      disabled={i === 0}
+                      onClick={() => handleMove(i, -1)}
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      className="fb-option-btn-icon"
+                      title="Move down"
+                      disabled={i === options.length - 1}
+                      onClick={() => handleMove(i, 1)}
+                    >
+                      ▼
+                    </button>
+                    <button
+                      type="button"
+                      className="fb-option-btn-icon danger"
+                      title="Delete option"
+                      onClick={() => handleRemove(i)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="fb-help" style={{ margin: "4px 0" }}>
+              No options configured yet.
+            </p>
+          )}
+
+          <div className="fb-add-option-row">
+            <input
+              className="fb-option-input"
+              aria-label="New option display name"
+              placeholder="Option name (e.g. Office Supplies)"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddOption();
+                }
+              }}
+            />
+            {prospectiveKey && (
+              <span className="fb-option-key-badge" title="Generated immutable key">
+                → {prospectiveKey}
+              </span>
+            )}
+            <button
+              type="button"
+              className="fb-button fb-button-sm"
+              style={{ fontSize: "12px", padding: "4px 10px" }}
+              disabled={!newLabel.trim()}
+              onClick={() => handleAddOption()}
+            >
+              Add
+            </button>
+          </div>
+
+          <textarea
+            aria-label="Dropdown options"
+            style={{ display: "none" }}
+            readOnly
+            value={rawTextValue}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function CalculatedFieldEditor({
+  field,
+  availableFields,
+  onChange,
+}: {
+  field: FieldDefinition | DetailsColumnDefinition;
+  availableFields?: Array<{ key: string; label: string; type: string }>;
+  onChange: (
+    changes: Partial<FieldDefinition & DetailsColumnDefinition>,
+  ) => void;
+}) {
+  const config: CalculationConfig =
+    (field as { calculationConfig?: CalculationConfig }).calculationConfig ??
+    ({} as CalculationConfig);
+  const isCustomFormula =
+    config.operation === "custom" || Boolean(config.formula);
+
+  const [mode, setMode] = useState<"predefined" | "custom">(
+    isCustomFormula ? "custom" : "predefined",
+  );
+  const [sampleValues, setSampleValues] = useState<Record<string, string>>({});
+
+  const formula = config.formula ?? "";
+
+  const parseResult = useMemo(() => {
+    if (!formula.trim()) return null;
+    return parseFormula(formula);
+  }, [formula]);
+
+  const referencedFields = useMemo(() => {
+    if (!formula.trim()) return [];
+    return extractFormulaFieldReferences(formula);
+  }, [formula]);
+
+  const liveEvaluation = useMemo(() => {
+    if (!formula.trim() || !parseResult?.ast) return null;
+    const numericInputs: Record<string, unknown> = {};
+    for (const ref of referencedFields) {
+      numericInputs[ref] = sampleValues[ref] ?? "100";
+    }
+    return evaluateFormula(parseResult.ast, numericInputs, {
+      precision: config.precision,
+    });
+  }, [formula, parseResult, referencedFields, sampleValues, config.precision]);
+
+  const handleModeChange = (newMode: "predefined" | "custom") => {
+    setMode(newMode);
+    if (newMode === "custom") {
+      onChange({
+        calculationConfig: {
+          ...config,
+          operation: "custom",
+          formula: config.formula || "",
+          operands: referencedFields,
+        },
+      } as Partial<FieldDefinition & DetailsColumnDefinition>);
+    } else {
+      onChange({
+        calculationConfig: {
+          ...config,
+          operation:
+            config.operation === "custom" ? "sum" : config.operation || "sum",
+          formula: undefined,
+        },
+      } as Partial<FieldDefinition & DetailsColumnDefinition>);
+    }
+  };
+
+  const handleFormulaChange = (newFormula: string) => {
+    const refs = extractFormulaFieldReferences(newFormula);
+    onChange({
+      calculationConfig: {
+        ...config,
+        operation: "custom",
+        formula: newFormula,
+        operands: refs,
+      },
+    } as Partial<FieldDefinition & DetailsColumnDefinition>);
+  };
+
+  const insertText = (str: string) => {
+    const next = formula ? `${formula} ${str}` : str;
+    handleFormulaChange(next);
+  };
+
+  const numericCandidates = (availableFields ?? []).filter(
+    (f) =>
+      f.key !== field.key &&
+      (f.type === "number" || f.type === "currency" || f.type === "calculated"),
+  );
+
+  return (
+    <div className="fb-formula-builder">
+      <div className="fb-formula-mode-toggle">
+        <button
+          type="button"
+          className={`fb-formula-mode-btn ${mode === "predefined" ? "active" : ""}`}
+          onClick={() => handleModeChange("predefined")}
+        >
+          Predefined Operation
+        </button>
+        <button
+          type="button"
+          className={`fb-formula-mode-btn ${mode === "custom" ? "active" : ""}`}
+          onClick={() => handleModeChange("custom")}
+        >
+          Custom Formula
+        </button>
+      </div>
+
+      {mode === "predefined" ? (
+        <>
+          <label>
+            Operation
+            <select
+              aria-label="Calculation operation"
+              value={config.operation ?? "sum"}
+              onChange={(event) =>
+                onChange({
+                  calculationConfig: {
+                    ...config,
+                    operation: event.target.value as NonNullable<
+                      CalculationConfig["operation"]
+                    >,
+                  },
+                } as Partial<FieldDefinition & DetailsColumnDefinition>)
+              }
+            >
+              {[
+                "add",
+                "subtract",
+                "multiply",
+                "divide",
+                "sum",
+                "min",
+                "max",
+                "count",
+              ].map((operation) => (
+                <option key={operation}>{operation}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Operand field keys
+            <input
+              aria-label="Calculation operands"
+              value={config.operands?.join(", ") ?? ""}
+              onChange={(event) =>
+                onChange({
+                  calculationConfig: {
+                    ...config,
+                    operation: config.operation || "sum",
+                    operands: event.target.value
+                      .split(",")
+                      .map((value) => value.trim())
+                      .filter(Boolean),
+                  },
+                } as Partial<FieldDefinition & DetailsColumnDefinition>)
+              }
+            />
+          </label>
+          <p className="fb-help">
+            Evaluates aggregate or binary operations across specified operands.
+          </p>
+        </>
+      ) : (
+        <>
+          <label>
+            Formula Expression
+            <input
+              aria-label="Calculation formula"
+              placeholder="(principal_amount * interest_rate * tenor_days) / 36500"
+              value={formula}
+              onChange={(e) => handleFormulaChange(e.target.value)}
+            />
+          </label>
+
+          {numericCandidates.length > 0 && (
+            <div>
+              <span style={{ fontSize: "11px", color: "var(--fb-muted)", fontWeight: 500 }}>
+                Insert Field:
+              </span>
+              <div className="fb-formula-chips">
+                {numericCandidates.map((cand) => (
+                  <button
+                    key={cand.key}
+                    type="button"
+                    className="fb-formula-chip-btn"
+                    title={`Insert ${cand.label} (${cand.key})`}
+                    onClick={() => insertText(cand.key)}
+                  >
+                    <span>+</span> {cand.label} <small>({cand.key})</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <span style={{ fontSize: "11px", color: "var(--fb-muted)", fontWeight: 500 }}>
+              Operators:
+            </span>
+            <div className="fb-formula-operators">
+              {["+", "-", "*", "/", "(", ")"].map((op) => (
+                <button
+                  key={op}
+                  type="button"
+                  className="fb-operator-btn"
+                  onClick={() => insertText(op)}
+                >
+                  {op}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="fb-operator-btn"
+                style={{ width: "auto", padding: "0 8px", fontSize: "11px" }}
+                onClick={() => handleFormulaChange("")}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {parseResult && (
+            <div
+              className={`fb-formula-status ${parseResult.ast && parseResult.errors.length === 0 ? "valid" : "invalid"}`}
+            >
+              {parseResult.ast && parseResult.errors.length === 0 ? (
+                <div>
+                  <strong>✓ Valid syntax.</strong>
+                  {referencedFields.length > 0 && (
+                    <span style={{ display: "block", fontSize: "11px", marginTop: "2px" }}>
+                      Referenced fields: {referencedFields.join(", ")}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <strong>✕ Syntax error:</strong> {parseResult.errors.join("; ")}
+                </div>
+              )}
+            </div>
+          )}
+
+          {referencedFields.length > 0 && (
+            <div className="fb-formula-tester">
+              <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                Test Formula with Sample Values:
+              </span>
+              <div className="fb-tester-grid">
+                {referencedFields.map((ref) => (
+                  <div key={ref} className="fb-tester-item">
+                    <label>{ref}</label>
+                    <input
+                      type="number"
+                      placeholder="100"
+                      value={sampleValues[ref] ?? ""}
+                      onChange={(e) =>
+                        setSampleValues({
+                          ...sampleValues,
+                          [ref]: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="fb-tester-result">
+                <span>Evaluated Preview:</span>
+                <span
+                  style={{
+                    color: "var(--fb-green)",
+                    fontFamily: "monospace",
+                    fontSize: "14px",
+                  }}
+                >
+                  {liveEvaluation?.value !== null && liveEvaluation?.value !== undefined
+                    ? liveEvaluation.value
+                    : "—"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <input
+            aria-label="Calculation operands"
+            style={{ display: "none" }}
+            readOnly
+            value={referencedFields.join(", ")}
+          />
+        </>
+      )}
+
+      <label style={{ marginTop: "8px" }}>
+        Decimal Precision
+        <select
+          aria-label="Decimal Precision"
+          value={config.precision !== undefined ? String(config.precision) : "default"}
+          onChange={(event) => {
+            const val =
+              event.target.value === "default"
+                ? undefined
+                : parseInt(event.target.value, 10);
+            onChange({
+              calculationConfig: {
+                ...config,
+                precision: val,
+              },
+            } as Partial<FieldDefinition & DetailsColumnDefinition>);
+          }}
+        >
+          <option value="default">Default (4 decimals)</option>
+          <option value="0">0 (Integer)</option>
+          <option value="2">2 (Currency / standard)</option>
+          <option value="4">4 (High precision / 4 decimals)</option>
+          <option value="6">6 (Micro precision / 6 decimals)</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
 function FieldProperties({
   field,
   details,
   dataSources,
+  availableFields,
   onChange,
   onMove,
   onRemove,
@@ -2000,6 +2718,7 @@ function FieldProperties({
   field: FieldDefinition | DetailsColumnDefinition;
   details: boolean;
   dataSources?: readonly BuilderDataSourceOption[];
+  availableFields?: Array<{ key: string; label: string; type: string }>;
   onChange: (
     changes: Partial<FieldDefinition & DetailsColumnDefinition>,
   ) => void;
@@ -2109,139 +2828,271 @@ function FieldProperties({
         </label>
       )}
       {field.type === "dropdown" && (
-        <label>
-          Options <small>One `Label = value` per line</small>
-          <textarea
-            aria-label="Dropdown options"
-            rows={5}
-            value={(options ?? [])
-              .map((option) => `${option.label} = ${option.value}`)
-              .join("\n")}
-            onChange={(event) =>
-              onChange({
-                options: event.target.value
-                  .split("\n")
-                  .filter(Boolean)
-                  .map((line) => {
-                    const [label, rawValue] = line.split("=");
-                    return {
-                      label: label.trim(),
-                      value: (rawValue ?? label).trim(),
-                    };
-                  }),
-              } as Partial<FieldDefinition>)
-            }
-          />
-        </label>
+        <DropdownOptionsEditor
+          options={options}
+          onChange={(newOptions) =>
+            onChange({ options: newOptions } as Partial<FieldDefinition & DetailsColumnDefinition>)
+          }
+        />
       )}
       {field.type === "lookup" && (
         <>
-          {activeDataSources.length > 0 && (
-            <label>
-              Data source
-              <select
-                aria-label="Lookup data source"
-                value={selectedDataSource?.key ?? ""}
-                onChange={(event) => {
-                  const chosen = activeDataSources.find(
-                    (ds) => ds.key === event.target.value,
-                  );
-                  if (!chosen) return;
+          <label>
+            Source Type
+            <select
+              aria-label="Lookup source type"
+              value={field.lookupConfig?.sourceType ?? "data_source"}
+              onChange={(e) => {
+                const newSourceType = e.target.value as NonNullable<
+                  typeof field.lookupConfig
+                >["sourceType"];
+                if (newSourceType === "table") {
                   onChange({
                     lookupConfig: {
-                      targetEntity: chosen.key,
-                      displayField: chosen.displayFieldKey,
-                      valueField: chosen.valueFieldKey,
+                      ...(field.lookupConfig ?? {}),
+                      sourceType: "table",
+                      targetEntity: "members",
+                      displayField: "name",
+                      valueField: "id",
                     },
-                  } as Partial<FieldDefinition>);
-                }}
-              >
-                <option value="">Select a tenant data source</option>
-                {activeDataSources.map((ds) => (
-                  <option key={ds.key} value={ds.key}>
-                    {ds.name} ({ds.key})
-                  </option>
-                ))}
-              </select>
-            </label>
+                  } as Partial<FieldDefinition & DetailsColumnDefinition>);
+                } else if (newSourceType === "api") {
+                  onChange({
+                    lookupConfig: {
+                      ...(field.lookupConfig ?? {}),
+                      sourceType: "api",
+                      apiMethod: "GET",
+                      displayField: "label",
+                      valueField: "value",
+                    },
+                  } as Partial<FieldDefinition & DetailsColumnDefinition>);
+                } else {
+                  onChange({
+                    lookupConfig: {
+                      ...(field.lookupConfig ?? {}),
+                      sourceType: "data_source",
+                      targetEntity: selectedDataSource?.key ?? "",
+                      displayField: selectedDataSource?.displayFieldKey ?? "label",
+                      valueField: selectedDataSource?.valueFieldKey ?? "value",
+                    },
+                  } as Partial<FieldDefinition & DetailsColumnDefinition>);
+                }
+              }}
+            >
+              <option value="data_source">Tenant Data Source</option>
+              <option value="table">Platform Member Roster</option>
+              <option value="api">External REST API</option>
+            </select>
+          </label>
+
+          {(!field.lookupConfig?.sourceType || field.lookupConfig.sourceType === "data_source") && (
+            <>
+              {activeDataSources.length > 0 && (
+                <label>
+                  Data source
+                  <select
+                    aria-label="Lookup data source"
+                    value={selectedDataSource?.key ?? ""}
+                    onChange={(event) => {
+                      const chosen = activeDataSources.find(
+                        (ds) => ds.key === event.target.value,
+                      );
+                      if (!chosen) return;
+                      onChange({
+                        lookupConfig: {
+                          ...(field.lookupConfig ?? {}),
+                          sourceType: "data_source",
+                          targetEntity: chosen.key,
+                          displayField: chosen.displayFieldKey,
+                          valueField: chosen.valueFieldKey,
+                        },
+                      } as Partial<FieldDefinition>);
+                    }}
+                  >
+                    <option value="">Select a tenant data source</option>
+                    {activeDataSources.map((ds) => (
+                      <option key={ds.key} value={ds.key}>
+                        {ds.name} ({ds.key})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label>
+                Lookup entity
+                <input
+                  aria-label="Lookup entity"
+                  value={field.lookupConfig?.targetEntity ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {
+                          displayField: "label",
+                          valueField: "value",
+                        }),
+                        targetEntity: event.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                Display field
+                <input
+                  aria-label="Lookup display field"
+                  list={
+                    selectedDataSource?.fields?.length
+                      ? `fb-ds-fields-${field.id}`
+                      : undefined
+                  }
+                  value={field.lookupConfig?.displayField ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {
+                          targetEntity: "local_options",
+                          valueField: "value",
+                        }),
+                        displayField: event.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                Value field
+                <input
+                  aria-label="Lookup value field"
+                  list={
+                    selectedDataSource?.fields?.length
+                      ? `fb-ds-fields-${field.id}`
+                      : undefined
+                  }
+                  value={field.lookupConfig?.valueField ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {
+                          targetEntity: "local_options",
+                          displayField: "label",
+                        }),
+                        valueField: event.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              {selectedDataSource?.fields?.length ? (
+                <datalist id={`fb-ds-fields-${field.id}`}>
+                  {selectedDataSource.fields.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {f.label}
+                    </option>
+                  ))}
+                </datalist>
+              ) : null}
+              <p className="fb-help">
+                Bind to an active tenant data source and configure its display and value fields.
+              </p>
+            </>
           )}
-          <label>
-            Lookup entity
-            <input
-              aria-label="Lookup entity"
-              value={field.lookupConfig?.targetEntity ?? ""}
-              onChange={(event) =>
-                onChange({
-                  lookupConfig: {
-                    ...(field.lookupConfig ?? {
-                      displayField: "label",
-                      valueField: "value",
-                    }),
-                    targetEntity: event.target.value,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          <label>
-            Display field
-            <input
-              aria-label="Lookup display field"
-              list={
-                selectedDataSource?.fields?.length
-                  ? `fb-ds-fields-${field.id}`
-                  : undefined
-              }
-              value={field.lookupConfig?.displayField ?? ""}
-              onChange={(event) =>
-                onChange({
-                  lookupConfig: {
-                    ...(field.lookupConfig ?? {
-                      targetEntity: "local_options",
-                      valueField: "value",
-                    }),
-                    displayField: event.target.value,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          <label>
-            Value field
-            <input
-              aria-label="Lookup value field"
-              list={
-                selectedDataSource?.fields?.length
-                  ? `fb-ds-fields-${field.id}`
-                  : undefined
-              }
-              value={field.lookupConfig?.valueField ?? ""}
-              onChange={(event) =>
-                onChange({
-                  lookupConfig: {
-                    ...(field.lookupConfig ?? {
-                      targetEntity: "local_options",
-                      displayField: "label",
-                    }),
-                    valueField: event.target.value,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          {selectedDataSource?.fields?.length ? (
-            <datalist id={`fb-ds-fields-${field.id}`}>
-              {selectedDataSource.fields.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </datalist>
-          ) : null}
-          <p className="fb-help">
-            Bind to an active tenant data source and configure its display and
-            value fields.
-          </p>
+
+          {field.lookupConfig?.sourceType === "table" && (
+            <div style={{ background: "#f8fafc", padding: "8px", borderRadius: "4px", border: "1px solid var(--fb-line)", marginTop: "6px" }}>
+              <p style={{ margin: "0 0 6px", fontSize: "12px", color: "var(--fb-ink)" }}>
+                <strong>Platform Member Roster:</strong> Dynamically resolves active members from the current organization.
+              </p>
+              <label>
+                Display format
+                <input
+                  aria-label="Lookup display field"
+                  value={field.lookupConfig?.displayField ?? "name"}
+                  onChange={(e) =>
+                    onChange({
+                      lookupConfig: {
+                        ...field.lookupConfig,
+                        displayField: e.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+            </div>
+          )}
+
+          {field.lookupConfig?.sourceType === "api" && (
+            <>
+              <label>
+                API Endpoint URL
+                <input
+                  aria-label="Lookup API endpoint"
+                  placeholder="https://api.example.com/v1/options"
+                  value={field.lookupConfig?.apiEndpoint ?? ""}
+                  onChange={(e) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {}),
+                        apiEndpoint: e.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                HTTP Method
+                <select
+                  aria-label="Lookup API method"
+                  value={field.lookupConfig?.apiMethod ?? "GET"}
+                  onChange={(e) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {}),
+                        apiMethod: e.target.value as "GET" | "POST",
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                >
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                </select>
+              </label>
+              <label>
+                Display Field Key
+                <input
+                  aria-label="Lookup display field"
+                  placeholder="label (or name, title)"
+                  value={field.lookupConfig?.displayField ?? ""}
+                  onChange={(e) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {}),
+                        displayField: e.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                Value Field Key
+                <input
+                  aria-label="Lookup value field"
+                  placeholder="value (or id, code)"
+                  value={field.lookupConfig?.valueField ?? ""}
+                  onChange={(e) =>
+                    onChange({
+                      lookupConfig: {
+                        ...(field.lookupConfig ?? {}),
+                        valueField: e.target.value,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <p className="fb-help">
+                External APIs are protected against SSRF. Private networks and internal hostnames are blocked.
+              </p>
+            </>
+          )}
         </>
       )}
       {!details && (field.type === "text" || field.type === "textarea") && (
@@ -2384,60 +3235,11 @@ function FieldProperties({
         </>
       )}
       {field.type === "calculated" && (
-        <>
-          <label>
-            Operation
-            <select
-              aria-label="Calculation operation"
-              value={field.calculationConfig?.operation ?? "sum"}
-              onChange={(event) =>
-                onChange({
-                  calculationConfig: {
-                    ...(field.calculationConfig ?? {}),
-                    operation: event.target.value as NonNullable<
-                      typeof field.calculationConfig
-                    >["operation"],
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            >
-              {[
-                "add",
-                "subtract",
-                "multiply",
-                "divide",
-                "sum",
-                "min",
-                "max",
-                "count",
-              ].map((operation) => (
-                <option key={operation}>{operation}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Operand field keys
-            <input
-              aria-label="Calculation operands"
-              value={field.calculationConfig?.operands?.join(", ") ?? ""}
-              onChange={(event) =>
-                onChange({
-                  calculationConfig: {
-                    ...(field.calculationConfig ?? { operation: "sum" }),
-                    operands: event.target.value
-                      .split(",")
-                      .map((value) => value.trim())
-                      .filter(Boolean),
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          <p className="fb-help">
-            This stores declarative schema only. Phase 3 does not execute
-            calculations.
-          </p>
-        </>
+        <CalculatedFieldEditor
+          field={field}
+          availableFields={availableFields}
+          onChange={onChange}
+        />
       )}
       <div className="fb-inline-actions">
         <button type="button" onClick={() => onMove(-1)}>

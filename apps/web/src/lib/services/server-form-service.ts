@@ -29,6 +29,24 @@ export async function authenticatedFormService() {
   };
 }
 
+export async function authenticatedSubmissionService() {
+  const client = await createClient();
+  const {
+    data: { user },
+    error,
+  } = await client.auth.getUser();
+  if (error || !user) throw new Error("AUTHENTICATION_REQUIRED");
+  const repositoryClient = client as unknown as SupabaseClient<Database>;
+  return {
+    userId: user.id,
+    service: new SubmissionService(
+      new SupabaseFormRepository(repositoryClient),
+      new SupabaseSubmissionRepository(repositoryClient),
+      new SupabaseMembershipRepository(repositoryClient),
+    ),
+  };
+}
+
 export function publicFormService() {
   const repositoryClient = createAdminClient();
   const formRepo = new SupabaseFormRepository(repositoryClient);

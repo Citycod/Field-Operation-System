@@ -4,7 +4,27 @@ import { createClient } from '@/lib/supabase/client';
 import {
   SubmissionRepository,
   FormSubmissionEntity,
+  SubmissionDetailRowEntity,
+  SubmissionFilterParams,
+  PaginatedSubmissionsResult,
+  SubmissionSortField,
 } from '../submission-repository';
+
+const ALLOWED_STATUSES = new Set([
+  'draft',
+  'submitted',
+  'pending_approval',
+  'approved',
+  'rejected',
+  'archived',
+]);
+
+const ALLOWED_SORT_FIELDS: Record<SubmissionSortField, string> = {
+  created_at: 'created_at',
+  submitted_at: 'submitted_at',
+  reference_number: 'reference_number',
+  status: 'status',
+};
 
 export class SupabaseSubmissionRepository implements SubmissionRepository {
   constructor(private readonly injectedClient?: SupabaseClient<Database>) {}
@@ -104,30 +124,111 @@ export class SupabaseSubmissionRepository implements SubmissionRepository {
     return (data as FormSubmissionEntity) ?? null;
   }
 
-  async listSubmissions(params: {
-    organizationId: string;
-    formId: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<FormSubmissionEntity[]> {
+  async getSubmissionDetailRows(
+    submissionId: string,
+    organizationId: string,
+  ): Promise<SubmissionDetailRowEntity[]> {
+    const supabase = this.client();
+    const { data, error } = await (supabase as any)
+      .from('submission_detail_rows')
+      .select('*')
+      .eq('submission_id', submissionId)
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null)
+      .order('tab_id', { ascending: true })
+      .order('row_order', { ascending: true })
+      .limit(500);
+
+    if (error) {
+      throw new Error(`Failed to retrieve submission detail rows: ${error.message}`);
+    }
+
+    return (data as SubmissionDetailRowEntity[]) ?? [];
+  }
+
+  async listSubmissions(params: SubmissionFilterParams): Promise<PaginatedSubmissionsResult> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+    const offset = (page - 1) * pageSize;
+
+    // Fail closed if the caller supplied an explicit empty list of authorized form IDs
+    if (Array.isArray(params.authorizedFormIds) && params.authorizedFormIds.length === 0) {
+      return {
+        submissions: [],
+        totalCount: 0,
+        page,
+        pageSize,
+        totalPages: 0,
+      };
+    }
+
     const supabase = this.client();
     let query = (supabase as any)
       .from('form_submissions')
-      .select('*')
-      .eq('organization_id', params.organizationId)
-      .eq('form_id', params.formId)
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' })
+      .eq('organization_id', params.organizationId);
 
-    if (params.limit) query = query.limit(params.limit);
-    if (params.offset !== undefined) {
-      query = query.range(params.offset, params.offset + (params.limit || 50) - 1);
+    if (params.formId) {
+      query = query.eq('form_id', params.formId);
     }
 
-    const { data, error } = await query;
+    if (Array.isArray(params.authorizedFormIds) && params.authorizedFormIds.length > 0) {
+      query = query.in('form_id', params.authorizedFormIds);
+    }
+
+    if (params.status && ALLOWED_STATUSES.has(params.status)) {
+      query = query.eq('status', params.status);
+    }
+
+    if (params.referenceNumber && params.referenceNumber.trim().length > 0) {
+      const escapedRef = params.referenceNumber.trim().replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('reference_number', `%${escapedRef}%`);
+    }
+
+    if (params.dateFrom) {
+      const fromTime = Date.parse(params.dateFrom);
+      if (!Number.isNaN(fromTime)) {
+        query = query.gte('created_at', new Date(fromTime).toISOString());
+      }
+    }
+
+    if (params.dateTo) {
+      const toTime = Date.parse(params.dateTo);
+      if (!Number.isNaN(toTime)) {
+        query = query.lte('created_at', new Date(toTime).toISOString());
+      }
+    }
+
+    if (params.createdOrSubmittedBy) {
+      const safeUserId = params.createdOrSubmittedBy.replace(/[^a-zA-Z0-9_-]/g, '');
+      if (safeUserId) {
+        query = query.or(`created_by.eq.${safeUserId},submitted_by.eq.${safeUserId}`);
+      }
+    }
+
+    const sortCol = (params.sortBy && ALLOWED_SORT_FIELDS[params.sortBy]) || 'created_at';
+    const ascending = params.sortOrder === 'asc';
+    query = query.order(sortCol, { ascending, nullsFirst: false });
+    if (sortCol !== 'id') {
+      query = query.order('id', { ascending: true });
+    }
+
+    query = query.range(offset, offset + pageSize - 1);
+
+    const { data, count, error } = await query;
     if (error) {
       throw new Error(`Failed to list submissions: ${error.message}`);
     }
 
-    return (data as FormSubmissionEntity[]) ?? [];
+    const totalCount = count ?? 0;
+    const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
+
+    return {
+      submissions: (data as FormSubmissionEntity[]) ?? [],
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+    };
   }
 }

@@ -44,6 +44,86 @@ export interface SubmissionLookupPayload {
 
 const SAFE_KEY_PATTERN = /^[a-z0-9][a-z0-9_]*$/;
 
+/**
+ * Validates an external API endpoint against SSRF (Server-Side Request Forgery).
+ * Blocks loopback addresses, local domains, link-local IPs, cloud metadata IPs, and private CIDR ranges.
+ */
+export function isSafeExternalApiUrl(urlStr: string): { safe: boolean; reason?: string } {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { safe: false, reason: 'Protocol must be http or https.' };
+    }
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block local hostnames and internal domain patterns
+    if (
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.local') ||
+      hostname === 'metadata.google.internal'
+    ) {
+      return { safe: false, reason: 'Access to internal or local domains is prohibited.' };
+    }
+
+    // Check IPv4 addresses
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const p1 = Number(ipv4Match[1]);
+      const p2 = Number(ipv4Match[2]);
+      const p3 = Number(ipv4Match[3]);
+      const p4 = Number(ipv4Match[4]);
+      if (p1 > 255 || p2 > 255 || p3 > 255 || p4 > 255) {
+        return { safe: false, reason: 'Invalid IP address format.' };
+      }
+      // 0.0.0.0/8
+      if (p1 === 0) return { safe: false, reason: 'Access to broadcast or zero network is prohibited.' };
+      // 127.0.0.0/8 (Loopback)
+      if (p1 === 127) return { safe: false, reason: 'Access to loopback IP is prohibited.' };
+      // 10.0.0.0/8 (RFC 1918 Private)
+      if (p1 === 10) return { safe: false, reason: 'Access to private network (10.0.0.0/8) is prohibited.' };
+      // 172.16.0.0/12 (RFC 1918 Private)
+      if (p1 === 172 && p2 >= 16 && p2 <= 31) {
+        return { safe: false, reason: 'Access to private network (172.16.0.0/12) is prohibited.' };
+      }
+      // 192.168.0.0/16 (RFC 1918 Private)
+      if (p1 === 192 && p2 === 168) {
+        return { safe: false, reason: 'Access to private network (192.168.0.0/16) is prohibited.' };
+      }
+      // 169.254.0.0/16 (Link-local & cloud metadata 169.254.169.254)
+      if (p1 === 169 && p2 === 254) {
+        return { safe: false, reason: 'Access to link-local or cloud metadata IP is prohibited.' };
+      }
+    }
+
+    // Check IPv6 addresses
+    if (hostname.startsWith('[') || hostname.includes(':')) {
+      const stripped = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+      if (
+        stripped === '::1' ||
+        stripped === '::' ||
+        stripped.startsWith('fe80:') ||
+        stripped.startsWith('fc00:') ||
+        stripped.startsWith('fd00:') ||
+        stripped.includes('::ffff:') ||
+        stripped.startsWith('ffff:')
+      ) {
+        return { safe: false, reason: 'Access to local, link-local, or private IPv6 addresses is prohibited.' };
+      }
+    }
+
+    // NOTE: Standard fetch executes DNS resolution after URL string validation.
+    // Without an isolated egress proxy or custom DNS pinning, DNS rebinding
+    // (TOCTOU between hostname validation and DNS lookup) cannot be prevented
+    // purely by string analysis on arbitrary domains. DNS rebinding protection
+    // is therefore explicitly NOT claimed.
+    return { safe: true };
+  } catch {
+    return { safe: false, reason: 'Malformed URL format.' };
+  }
+}
+
 export function normalizeDataSourceKey(raw: string): string {
   return (
     raw
@@ -463,12 +543,165 @@ export class DataSourceService {
     userId: string;
     organizationId: string;
     targetEntity: string;
+    sourceType?: 'data_source' | 'table' | 'view' | 'api';
     displayField?: string;
     valueField?: string;
     query?: string;
+    apiEndpoint?: string;
+    apiMethod?: 'GET' | 'POST';
   }): Promise<OptionItem[]> {
     await this.assertReadAccess(params.userId, params.organizationId);
 
+    const normalizedQuery = params.query?.trim().toLowerCase() ?? '';
+
+    // 1. Platform Member / User Roster Lookup
+    if (params.sourceType === 'table' || params.targetEntity === 'members') {
+      const roster = await this.membershipRepository.getRoster(params.organizationId);
+      const activeMembers = roster.filter((m) => m.status === 'active');
+      const options: OptionItem[] = [];
+
+      for (const m of activeMembers) {
+        const value = params.valueField === 'membership_id' ? m.membership_id : m.user_id;
+        const namePart = [m.first_name, m.last_name].filter(Boolean).join(' ');
+        const label = m.display_name?.trim() || namePart || m.email || m.user_id;
+        if (
+          normalizedQuery &&
+          !label.toLowerCase().includes(normalizedQuery) &&
+          !value.toLowerCase().includes(normalizedQuery)
+        ) {
+          continue;
+        }
+        options.push({ key: value, value, label });
+      }
+      return options;
+    }
+
+    // 2. External REST API Lookup with SSRF Guards
+    if (params.sourceType === 'api') {
+      const endpoint = params.apiEndpoint?.trim();
+      if (!endpoint) {
+        throw new Error('API lookup endpoint is required for api source type.');
+      }
+      const safetyCheck = isSafeExternalApiUrl(endpoint);
+      if (!safetyCheck.safe) {
+        throw new Error(`SSRF validation blocked request to '${endpoint}': ${safetyCheck.reason}`);
+      }
+
+      const method = params.apiMethod ?? 'GET';
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const response = await fetch(endpoint, {
+          method,
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'FieldPlatform-Lookup/1.0',
+          },
+          signal: controller.signal,
+          redirect: 'error',
+        });
+
+        if (!response.ok) {
+          throw new Error(`External API returned HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        // Bounded response handling (Max 1 MB)
+        const MAX_BYTES = 1024 * 1024; // 1 MB
+        const MAX_OPTIONS = 500;
+
+        // Upstream Content-Length validation if provided
+        const contentLength = response.headers.get('content-length');
+        if (contentLength && parseInt(contentLength, 10) > MAX_BYTES) {
+          throw new Error('Response size exceeds maximum allowed limit (1 MB).');
+        }
+
+        let bodyText = '';
+        if (response.body && typeof response.body.getReader === 'function') {
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let totalBytes = 0;
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value) {
+                totalBytes += value.byteLength;
+                if (totalBytes > MAX_BYTES) {
+                  try {
+                    await reader.cancel();
+                  } catch {
+                    // Safe stream cancellation ignore
+                  }
+                  throw new Error('Response size exceeds maximum allowed limit (1 MB).');
+                }
+                chunks.push(value);
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+
+          const merged = new Uint8Array(totalBytes);
+          let offset = 0;
+          for (const chunk of chunks) {
+            merged.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+          bodyText = new TextDecoder('utf-8').decode(merged);
+        } else {
+          // Fallback for mocked test environments
+          bodyText = await response.text();
+          if (new TextEncoder().encode(bodyText).byteLength > MAX_BYTES) {
+            throw new Error('Response size exceeds maximum allowed limit (1 MB).');
+          }
+        }
+
+        let json: unknown;
+        try {
+          json = JSON.parse(bodyText);
+        } catch {
+          throw new Error('External API returned malformed or non-JSON response.');
+        }
+
+        const rawItems = Array.isArray(json)
+          ? json
+          : Array.isArray((json as any)?.data)
+          ? (json as any).data
+          : Array.isArray((json as any)?.items)
+          ? (json as any).items
+          : [];
+
+        const items = rawItems.slice(0, MAX_OPTIONS);
+
+        const displayKey = params.displayField?.trim() || 'label';
+        const valueKey = params.valueField?.trim() || 'value';
+        const options: OptionItem[] = [];
+
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          const rawVal = item[valueKey] ?? item.id ?? item.key ?? item.value;
+          if (rawVal === undefined || rawVal === null || String(rawVal).trim() === '') continue;
+          const val = String(rawVal);
+          const rawLabel = item[displayKey] ?? item.name ?? item.title ?? item.label ?? val;
+          const label = String(rawLabel);
+
+          if (
+            normalizedQuery &&
+            !label.toLowerCase().includes(normalizedQuery) &&
+            !val.toLowerCase().includes(normalizedQuery)
+          ) {
+            continue;
+          }
+          options.push({ key: val, value: val, label });
+        }
+        return options;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    // 3. Tenant Data Source Lookup (Default)
     const source = await this.dataSourceRepository.getDataSourceByKeyOrId(
       params.targetEntity,
       params.organizationId,
@@ -481,7 +714,6 @@ export class DataSourceService {
 
     const displayKey = params.displayField?.trim() || source.display_field_key;
     const valueKey = params.valueField?.trim() || source.value_field_key;
-    const normalizedQuery = params.query?.trim().toLowerCase() ?? '';
 
     const options: OptionItem[] = [];
     for (const item of source.items) {
@@ -555,6 +787,61 @@ export class DataSourceService {
         return;
       }
 
+      const candidate = String(rawValue);
+
+      // Handle table / members roster source
+      if (field.lookupConfig.sourceType === 'table' || field.lookupConfig.targetEntity === 'members') {
+        const roster = await this.membershipRepository.getRoster(params.organizationId);
+        const activeMembers = roster.filter((m) => m.status === 'active');
+        const match = activeMembers.some((m) => {
+          const val = field.lookupConfig?.valueField === 'membership_id' ? m.membership_id : m.user_id;
+          return val === candidate;
+        });
+        if (!match) {
+          errors.push({
+            path,
+            fieldKey: field.key,
+            code: 'INVALID_LOOKUP_VALUE',
+            message: `Selected value '${candidate}' for '${field.label}' is not an active tenant member.`,
+          });
+        }
+        return;
+      }
+
+      // Handle external REST API source
+      if (field.lookupConfig.sourceType === 'api') {
+        try {
+          const options = await this.resolveLookupOptions({
+            userId: params.userId,
+            organizationId: params.organizationId,
+            targetEntity: field.lookupConfig.targetEntity,
+            sourceType: 'api',
+            apiEndpoint: field.lookupConfig.apiEndpoint,
+            apiMethod: field.lookupConfig.apiMethod,
+            displayField: field.lookupConfig.displayField,
+            valueField: field.lookupConfig.valueField,
+          });
+          const match = options.some((o) => o.key === candidate || o.value === candidate);
+          if (!match) {
+            errors.push({
+              path,
+              fieldKey: field.key,
+              code: 'INVALID_LOOKUP_VALUE',
+              message: `Selected value '${candidate}' for '${field.label}' is not a valid option from external API.`,
+            });
+          }
+        } catch (err) {
+          errors.push({
+            path,
+            fieldKey: field.key,
+            code: 'LOOKUP_SOURCE_UNAVAILABLE',
+            message: `External API lookup failed for '${field.label}': ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+
+      // Handle tenant data source
       const source = await loadSource(field.lookupConfig.targetEntity);
       if (!source || source.status !== 'active') {
         errors.push({
@@ -568,7 +855,6 @@ export class DataSourceService {
 
       const valueKey =
         field.lookupConfig.valueField?.trim() || source.value_field_key;
-      const candidate = String(rawValue);
       const validMatch = source.items.some(
         (item) =>
           item.status === 'active' &&

@@ -10,6 +10,9 @@ import type {
 import type {
   SubmissionRepository,
   FormSubmissionEntity,
+  SubmissionDetailRowEntity,
+  SubmissionFilterParams,
+  PaginatedSubmissionsResult,
 } from "@/lib/repositories/submission-repository";
 import type { MembershipRepository } from "@/lib/repositories/membership-repository";
 import type { OrganizationMembership, PlatformRole } from "@field/types";
@@ -203,6 +206,7 @@ class InMemoryFormRepository implements FormRepository {
 
 class InMemorySubmissionRepository implements SubmissionRepository {
   public submissions = new Map<string, FormSubmissionEntity>();
+  public detailRows = new Map<string, SubmissionDetailRowEntity[]>();
 
   async createSubmission(params: {
     organizationId: string;
@@ -233,6 +237,23 @@ class InMemorySubmissionRepository implements SubmissionRepository {
       completed_at: null,
     };
     this.submissions.set(id, entity);
+
+    if (params.detailRows && params.detailRows.length > 0) {
+      const rows: SubmissionDetailRowEntity[] = params.detailRows.map((r, i) => ({
+        id: `row_${id}_${i}`,
+        organization_id: params.organizationId,
+        submission_id: id,
+        tab_id: r.tabId,
+        row_order: r.rowOrder,
+        data_jsonb: r.dataJsonb,
+        created_by: params.createdBy ?? null,
+        created_at: now,
+        updated_at: now,
+        deleted_at: null,
+      }));
+      this.detailRows.set(id, rows);
+    }
+
     return entity;
   }
 
@@ -242,10 +263,49 @@ class InMemorySubmissionRepository implements SubmissionRepository {
     return sub;
   }
 
-  async listSubmissions(params: { organizationId: string; formId: string }): Promise<FormSubmissionEntity[]> {
-    return Array.from(this.submissions.values()).filter(
-      (s) => s.organization_id === params.organizationId && s.form_id === params.formId,
+  async getSubmissionDetailRows(
+    submissionId: string,
+    organizationId: string,
+  ): Promise<SubmissionDetailRowEntity[]> {
+    const rows = this.detailRows.get(submissionId) ?? [];
+    return rows.filter((r) => r.organization_id === organizationId && r.deleted_at === null);
+  }
+
+  async listSubmissions(params: SubmissionFilterParams): Promise<PaginatedSubmissionsResult> {
+    let list = Array.from(this.submissions.values()).filter(
+      (s) => s.organization_id === params.organizationId,
     );
+
+    if (params.formId) {
+      list = list.filter((s) => s.form_id === params.formId);
+    }
+
+    if (params.authorizedFormIds) {
+      const allowed = new Set(params.authorizedFormIds);
+      list = list.filter((s) => allowed.has(s.form_id));
+    }
+
+    if (params.createdOrSubmittedBy) {
+      list = list.filter(
+        (s) =>
+          s.created_by === params.createdOrSubmittedBy ||
+          s.submitted_by === params.createdOrSubmittedBy,
+      );
+    }
+
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+    const totalCount = list.length;
+    const totalPages = Math.ceil(totalCount / pageSize);
+    const offset = (page - 1) * pageSize;
+
+    return {
+      submissions: list.slice(offset, offset + pageSize),
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+    };
   }
 }
 

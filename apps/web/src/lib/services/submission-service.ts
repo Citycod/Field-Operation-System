@@ -1,5 +1,14 @@
-import { FormRepository } from '../repositories/form-repository';
-import { SubmissionRepository, FormSubmissionEntity } from '../repositories/submission-repository';
+import { FormRepository, FormEntity, FormVersionEntity } from '../repositories/form-repository';
+import {
+  SubmissionRepository,
+  FormSubmissionEntity,
+  SubmissionDetailRowEntity,
+  SubmissionFilterParams,
+  PaginatedSubmissionsResult,
+  SubmissionSortField,
+  SubmissionSortOrder,
+} from '../repositories/submission-repository';
+import { MembershipRepository } from '../repositories/membership-repository';
 import {
   FormSchemaV1,
   evaluateRules,
@@ -16,11 +25,61 @@ export interface SubmitPublicFormResult {
   successMessage: string;
 }
 
+export interface AuthenticatedListSubmissionsParams {
+  userId: string;
+  organizationId: string;
+  formId?: string;
+  status?: string;
+  referenceNumber?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: SubmissionSortField;
+  sortOrder?: SubmissionSortOrder;
+}
+
+export interface AuthenticatedSubmissionDetailParams {
+  submissionId: string;
+  organizationId: string;
+  userId: string;
+}
+
+export interface AuthenticatedSubmissionDetailResult {
+  submission: FormSubmissionEntity;
+  form: FormEntity;
+  formVersion: FormVersionEntity;
+  detailRows: SubmissionDetailRowEntity[];
+  rendererValue: {
+    fields: Record<string, unknown>;
+    details: Record<string, Array<{ id: string; values: Record<string, unknown> }>>;
+    notes: unknown[];
+    documents: unknown[];
+  };
+}
+
 export class SubmissionService {
   constructor(
     private readonly formRepository: FormRepository,
     private readonly submissionRepository: SubmissionRepository,
+    private readonly membershipRepository?: MembershipRepository,
   ) {}
+
+  private async checkMembership(userId: string, organizationId: string) {
+    if (!this.membershipRepository) {
+      throw new Error('Membership repository is required for authenticated operations.');
+    }
+    const membership = await this.membershipRepository.findUserMembershipInOrg(
+      userId,
+      organizationId,
+    );
+    if (!membership || membership.status !== 'active') {
+      throw new Error(
+        `Unauthorized: User ${userId} is not an active member of organization ${organizationId}`,
+      );
+    }
+    return membership;
+  }
 
   private generateReferenceNumber(schema: FormSchemaV1): string | null {
     const refConfig = schema.settings?.referenceNumber;
@@ -68,7 +127,7 @@ export class SubmissionService {
     type: FieldDefinition['type'],
     val: unknown,
     options?: {
-      options?: Array<{ value: string }>;
+      options?: Array<{ value: string; key?: string; label?: string }>;
       validation?: {
         min?: number;
         max?: number;
@@ -102,7 +161,23 @@ export class SubmissionService {
       if (typeof val !== 'string') {
         return `"${label}" must be a valid option.`;
       }
-      const allowedValues = options?.options?.map((o) => o.value) ?? [];
+      // Canonical option identity: accept machine key or legacy value.
+      // Do NOT accept mutable display labels as valid option values.
+      // Explicit documented compatibility fallback: only if an option has neither key nor value, accept label.
+      const rawOptions = (options as any)?.options;
+      const optionItems: Array<{ key?: string; value?: string; label?: string }> =
+        Array.isArray(rawOptions)
+          ? rawOptions
+          : Array.isArray(rawOptions?.options)
+          ? rawOptions.options
+          : Array.isArray(options)
+          ? (options as any)
+          : [];
+      const allowedValues =
+        optionItems.flatMap((o) => {
+          const ids = [o.key, o.value].filter(Boolean) as string[];
+          return ids.length > 0 ? ids : (o.label ? [o.label] : []);
+        });
       if (allowedValues.length > 0 && !allowedValues.includes(val)) {
         return `"${label}" contains an invalid option.`;
       }
@@ -257,7 +332,7 @@ export class SubmissionService {
     }
 
     const { form, publishedVersion } = publicResult;
-    const schema = publishedVersion.schema_jsonb;
+    const schema = publishedVersion.schema_jsonb || (publishedVersion as any).schema_json;
 
     if (form.is_public !== true) {
       throw new Error('This form is private and does not accept public submissions.');
@@ -346,17 +421,317 @@ export class SubmissionService {
     };
   }
 
+  async listAuthenticatedSubmissions(
+    params: AuthenticatedListSubmissionsParams,
+  ): Promise<PaginatedSubmissionsResult> {
+    const membership = await this.checkMembership(params.userId, params.organizationId);
+    const roleKey = membership.role_key;
+    const isPlatformAdmin = ['super_admin', 'business_admin'].includes(roleKey);
+
+    // Case 1: Filtered by specific form
+    if (params.formId) {
+      const form = await this.formRepository.getFormById(params.formId, params.organizationId);
+      if (!form || form.organization_id !== params.organizationId) {
+        throw new Error(`Form not found or inaccessible in organization ${params.organizationId}`);
+      }
+
+      let createdOrSubmittedBy: string | undefined;
+
+      if (!isPlatformAdmin) {
+        const published = await this.formRepository.getPublishedVersion(
+          params.formId,
+          params.organizationId,
+        );
+        const perms = (published?.schema_jsonb as FormSchemaV1 | undefined)?.permissions || {};
+        const readAllRoles = perms.readAllRoles ?? ['super_admin', 'business_admin', 'manager'];
+        const readOwnRoles = perms.readOwnRoles ?? [
+          'super_admin',
+          'business_admin',
+          'manager',
+          'employee',
+        ];
+
+        const canReadAll = readAllRoles.includes(roleKey);
+        const canReadOwn = readOwnRoles.includes(roleKey);
+
+        if (!canReadAll && !canReadOwn) {
+          throw new Error(
+            `Unauthorized: Role "${roleKey}" is not permitted to view submissions for this form.`,
+          );
+        }
+
+        if (!canReadAll && canReadOwn) {
+          createdOrSubmittedBy = params.userId;
+        }
+      }
+
+      return this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        formId: params.formId,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        page: params.page,
+        pageSize: params.pageSize,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+        createdOrSubmittedBy,
+      });
+    }
+
+    // Case 2: Cross-form listing across entire organization
+    if (isPlatformAdmin) {
+      return this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        page: params.page,
+        pageSize: params.pageSize,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+      });
+    }
+
+    // Non-admin cross-form discovery: evaluate permissions on active published forms
+    const forms = await this.formRepository.listForms(params.organizationId);
+    const readAllFormIds: string[] = [];
+    const readOwnFormIds: string[] = [];
+
+    for (const f of forms) {
+      const published = await this.formRepository.getPublishedVersion(f.id, params.organizationId);
+      if (!published) continue;
+
+      const perms = (published.schema_jsonb as FormSchemaV1 | undefined)?.permissions || {};
+      const readAllRoles = perms.readAllRoles ?? ['super_admin', 'business_admin', 'manager'];
+      const readOwnRoles = perms.readOwnRoles ?? [
+        'super_admin',
+        'business_admin',
+        'manager',
+        'employee',
+      ];
+
+      const canReadAll = readAllRoles.includes(roleKey);
+      const canReadOwn = readOwnRoles.includes(roleKey);
+
+      if (canReadAll) {
+        readAllFormIds.push(f.id);
+      } else if (canReadOwn) {
+        readOwnFormIds.push(f.id);
+      }
+    }
+
+    // If user has zero authorized forms in this tenant, fail closed immediately
+    if (readAllFormIds.length === 0 && readOwnFormIds.length === 0) {
+      return {
+        submissions: [],
+        totalCount: 0,
+        page: Math.max(1, params.page ?? 1),
+        pageSize: Math.min(100, Math.max(1, params.pageSize ?? 20)),
+        totalPages: 0,
+      };
+    }
+
+    // If user has readAll on all authorized forms (e.g. manager)
+    if (readOwnFormIds.length === 0) {
+      return this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        authorizedFormIds: readAllFormIds,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        page: params.page,
+        pageSize: params.pageSize,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+      });
+    }
+
+    // If user has readOwn on all authorized forms (e.g. employee)
+    if (readAllFormIds.length === 0) {
+      return this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        authorizedFormIds: readOwnFormIds,
+        createdOrSubmittedBy: params.userId,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        page: params.page,
+        pageSize: params.pageSize,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+      });
+    }
+
+    // Mixed permissions across forms
+    const [resAll, resOwn] = await Promise.all([
+      this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        authorizedFormIds: readAllFormIds,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        page: 1,
+        pageSize: 100,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+      }),
+      this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        authorizedFormIds: readOwnFormIds,
+        createdOrSubmittedBy: params.userId,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        page: 1,
+        pageSize: 100,
+        sortBy: params.sortBy,
+        sortOrder: params.sortOrder,
+      }),
+    ]);
+
+    const combined = [...resAll.submissions, ...resOwn.submissions];
+    const totalCount = resAll.totalCount + resOwn.totalCount;
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+    const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
+    const offset = (page - 1) * pageSize;
+
+    return {
+      submissions: combined.slice(offset, offset + pageSize),
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+    };
+  }
+
+  async getAuthenticatedSubmissionDetail(
+    params: AuthenticatedSubmissionDetailParams,
+  ): Promise<AuthenticatedSubmissionDetailResult> {
+    const membership = await this.checkMembership(params.userId, params.organizationId);
+    const roleKey = membership.role_key;
+    const isPlatformAdmin = ['super_admin', 'business_admin'].includes(roleKey);
+
+    const submission = await this.submissionRepository.getSubmissionById(
+      params.submissionId,
+      params.organizationId,
+    );
+    if (!submission || submission.organization_id !== params.organizationId) {
+      throw new Error(`Submission not found or inaccessible in organization ${params.organizationId}`);
+    }
+
+    const form = await this.formRepository.getFormById(
+      submission.form_id,
+      params.organizationId,
+    );
+    if (!form || form.organization_id !== params.organizationId) {
+      throw new Error(`Associated form not found or inaccessible in organization ${params.organizationId}`);
+    }
+
+    // Retrieve exact historical form version tied to this submission
+    let formVersion: FormVersionEntity | null = null;
+    if (typeof (this.formRepository as any).getVersionById === 'function') {
+      formVersion = await (this.formRepository as any).getVersionById(
+        submission.form_version_id,
+        params.organizationId,
+      );
+    }
+    if (!formVersion) {
+      const versions = await this.formRepository.listVersions(
+        submission.form_id,
+        params.organizationId,
+      );
+      formVersion = versions.find((v) => v.id === submission.form_version_id) ?? null;
+    }
+    if (!formVersion) {
+      throw new Error(`Historical form version ${submission.form_version_id} not found.`);
+    }
+
+    // Evaluate permissions against the historical version
+    if (!isPlatformAdmin) {
+      const perms = (formVersion.schema_jsonb as FormSchemaV1 | undefined)?.permissions || {};
+      const readAllRoles = perms.readAllRoles ?? ['super_admin', 'business_admin', 'manager'];
+      const readOwnRoles = perms.readOwnRoles ?? [
+        'super_admin',
+        'business_admin',
+        'manager',
+        'employee',
+      ];
+
+      const canReadAll = readAllRoles.includes(roleKey);
+      const canReadOwn = readOwnRoles.includes(roleKey);
+
+      if (!canReadAll && !canReadOwn) {
+        throw new Error(`Unauthorized: Role "${roleKey}" is not permitted to view this submission.`);
+      }
+
+      if (!canReadAll && canReadOwn) {
+        const isOwner =
+          (typeof submission.created_by === 'string' && submission.created_by === params.userId) ||
+          (typeof submission.submitted_by === 'string' && submission.submitted_by === params.userId);
+
+        if (!isOwner) {
+          throw new Error(
+            'Unauthorized: User is not authorized to view submissions submitted by other users.',
+          );
+        }
+      }
+    }
+
+    const detailRows = await this.submissionRepository.getSubmissionDetailRows(
+      submission.id,
+      params.organizationId,
+    );
+
+    // Format renderer value for <FormRenderer mode="readOnly" />
+    const rawFields = (submission.data_jsonb?.fields as Record<string, unknown>) ?? {};
+    const detailsMap: Record<string, Array<{ id: string; values: Record<string, unknown> }>> = {};
+
+    for (const row of detailRows) {
+      if (!detailsMap[row.tab_id]) {
+        detailsMap[row.tab_id] = [];
+      }
+      detailsMap[row.tab_id].push({
+        id: row.id,
+        values: (row.data_jsonb as Record<string, unknown>) ?? {},
+      });
+    }
+
+    const rawNotes = Array.isArray(submission.data_jsonb?.notes)
+      ? (submission.data_jsonb.notes as unknown[])
+      : [];
+    const rawDocs = Array.isArray(submission.data_jsonb?.documents)
+      ? (submission.data_jsonb.documents as unknown[])
+      : [];
+
+    const rendererValue = {
+      fields: rawFields,
+      details: detailsMap,
+      notes: rawNotes,
+      documents: rawDocs,
+    };
+
+    return {
+      submission,
+      form,
+      formVersion,
+      detailRows,
+      rendererValue,
+    };
+  }
+
   async getSubmission(id: string, organizationId: string): Promise<FormSubmissionEntity | null> {
     return this.submissionRepository.getSubmissionById(id, organizationId);
   }
 
-  async listSubmissions(params: {
-    organizationId: string;
-    formId: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<FormSubmissionEntity[]> {
+  async listSubmissions(params: SubmissionFilterParams): Promise<PaginatedSubmissionsResult> {
     return this.submissionRepository.listSubmissions(params);
   }
 }
-

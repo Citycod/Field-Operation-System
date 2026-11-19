@@ -164,6 +164,19 @@ export class SupabaseFormRepository implements FormRepository {
     return data as unknown as FormVersionEntity;
   }
 
+  async getVersionById(versionId: string, organizationId: string): Promise<FormVersionEntity | null> {
+    const supabase = this.client();
+    const { data, error } = await supabase
+      .from('form_versions')
+      .select('*')
+      .eq('id', versionId)
+      .eq('organization_id', organizationId)
+      .single();
+
+    if (error || !data) return null;
+    return data as unknown as FormVersionEntity;
+  }
+
   async saveDraft(params: {
     versionId: string;
     formId: string;

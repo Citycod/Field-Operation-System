@@ -1,3 +1,11 @@
+export type SubmissionSortField =
+  | 'created_at'
+  | 'submitted_at'
+  | 'reference_number'
+  | 'status';
+
+export type SubmissionSortOrder = 'asc' | 'desc';
+
 export interface FormSubmissionEntity {
   id: string;
   organization_id: string;
@@ -27,6 +35,29 @@ export interface SubmissionDetailRowEntity {
   deleted_at: string | null;
 }
 
+export interface SubmissionFilterParams {
+  organizationId: string;
+  formId?: string;
+  authorizedFormIds?: string[];
+  status?: string;
+  referenceNumber?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: SubmissionSortField;
+  sortOrder?: SubmissionSortOrder;
+  createdOrSubmittedBy?: string;
+}
+
+export interface PaginatedSubmissionsResult {
+  submissions: FormSubmissionEntity[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface SubmissionRepository {
   createSubmission(params: {
     organizationId: string;
@@ -49,11 +80,10 @@ export interface SubmissionRepository {
     organizationId: string,
   ): Promise<FormSubmissionEntity | null>;
 
-  listSubmissions(params: {
-    organizationId: string;
-    formId: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<FormSubmissionEntity[]>;
-}
+  getSubmissionDetailRows(
+    submissionId: string,
+    organizationId: string,
+  ): Promise<SubmissionDetailRowEntity[]>;
 
+  listSubmissions(params: SubmissionFilterParams): Promise<PaginatedSubmissionsResult>;
+}

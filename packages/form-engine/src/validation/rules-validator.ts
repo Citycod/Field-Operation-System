@@ -2,6 +2,7 @@ import { CalculatedFieldDefinition, FieldDefinition } from '../schema/fields';
 import { DetailsColumnDefinition, FormTabUnion } from '../schema/tabs';
 import { RuleDefinition } from '../schema/rules';
 import { ValidationError } from './types';
+import { parseFormula } from '../rules/formula-evaluator';
 
 const VALID_OPERATORS = new Set([
   'equals',
@@ -31,6 +32,7 @@ const VALID_CALCULATION_OPERATIONS = new Set([
   'min',
   'max',
   'count',
+  'custom',
 ]);
 
 /**
@@ -231,19 +233,43 @@ export function validateCalculationsSemantic(
       });
     }
 
-    // Source grid vs Operands
-    if (!config.source && (!config.operands || config.operands.length === 0)) {
+    // Formula vs Source grid vs Operands
+    if (config.formula && typeof config.formula === 'string') {
+      const parseResult = parseFormula(config.formula);
+      if (parseResult.errors.length > 0) {
+        errors.push({
+          path: `${path}.formula`,
+          code: 'INVALID_CALCULATION_CONFIG',
+          message: `Formula syntax error: ${parseResult.errors.join('; ')}`,
+        });
+      } else {
+        const formulaDeps = parseResult.fieldReferences;
+        const existingDeps = calcByKey.get(field.key) || [];
+        calcByKey.set(field.key, [...existingDeps, ...formulaDeps]);
+
+        for (const depKey of formulaDeps) {
+          if (isPublishing && !fieldIds.has(depKey) && !fieldKeys.has(depKey)) {
+            errors.push({
+              path: `${path}.formula`,
+              code: 'BROKEN_CALCULATION_REF',
+              message: `Formula references non-existent field "${depKey}"`,
+            });
+          }
+        }
+      }
+    } else if (!config.source && (!config.operands || config.operands.length === 0)) {
       if (isPublishing) {
         errors.push({
           path,
           code: 'INVALID_CALCULATION_CONFIG',
-          message: 'A calculation needs operands or a grid source',
+          message: 'A calculation needs operands, a formula, or a grid source',
         });
       }
     }
 
     if (config.operands && Array.isArray(config.operands)) {
-      calcByKey.set(field.key, config.operands);
+      const existingDeps = calcByKey.get(field.key) || [];
+      calcByKey.set(field.key, [...existingDeps, ...config.operands]);
       for (let i = 0; i < config.operands.length; i++) {
         const operand = config.operands[i];
         if (isPublishing && !fieldIds.has(operand) && !fieldKeys.has(operand)) {

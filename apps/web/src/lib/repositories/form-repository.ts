@@ -57,6 +57,8 @@ export interface FormRepository {
 
   getPublishedVersion(formId: string, organizationId: string): Promise<FormVersionEntity | null>;
 
+  getVersionById?(versionId: string, organizationId: string): Promise<FormVersionEntity | null>;
+
   saveDraft(params: {
     versionId: string;
     formId: string;

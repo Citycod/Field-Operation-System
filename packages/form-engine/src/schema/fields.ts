@@ -31,21 +31,57 @@ export interface FileFieldValidation extends BaseFieldValidation {
 }
 
 export interface OptionItem {
+  /** Stable immutable identifier / key for persistence, business rules, and references */
+  key?: string;
+  /** Display label shown to respondents in forms and viewers */
   label: string;
+  /** Stored value (matches `key` in modern schemas; backwards compatible with legacy `value`) */
   value: string;
+  /** Optional description or tooltip text */
+  description?: string;
 }
+
+export type LookupSourceType = 'data_source' | 'table' | 'view' | 'api';
 
 export interface LookupConfig {
+  /** Type of dynamic data source ('data_source', 'table', 'view', or 'api') */
+  sourceType?: LookupSourceType;
+  /** Identifier of the target data source, table, view, or API definition */
   targetEntity: string;
+  /** Field to display in dropdown options */
   displayField: string;
+  /** Field to store as the stable value */
   valueField: string;
+  /** Optional static or parameterized filter criteria */
   filter?: Record<string, unknown>;
+  /** Optional external API endpoint (for sourceType: 'api') */
+  apiEndpoint?: string;
+  /** Optional HTTP method for external API */
+  apiMethod?: 'GET' | 'POST';
 }
 
+export type CalculationOperation =
+  | 'add'
+  | 'subtract'
+  | 'multiply'
+  | 'divide'
+  | 'sum'
+  | 'min'
+  | 'max'
+  | 'count'
+  | 'custom';
+
 export interface CalculationConfig {
-  operation: 'add' | 'subtract' | 'multiply' | 'divide' | 'sum' | 'min' | 'max' | 'count';
+  /** Predefined operation or 'custom' for mathematical formula expressions */
+  operation: CalculationOperation;
+  /** Operand field keys when using predefined operations */
   operands?: string[];
+  /** Grid source (e.g. 'tabKey.columnKey') for grid column aggregations */
   source?: string;
+  /** Custom formula expression, e.g. '(principal_amount * interest_rate * tenor_days) / 36500' */
+  formula?: string;
+  /** Explicit decimal precision for rounding results (0 to 8). When omitted, defaults to 4. */
+  precision?: number;
 }
 
 export interface BaseFieldDefinition {

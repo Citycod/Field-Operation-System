@@ -1,6 +1,7 @@
 import { FormSchemaV1 } from '../schema/form-schema';
 import { FieldDefinition } from '../schema/fields';
 import { DetailsColumnDefinition } from '../schema/tabs';
+import { extractFormulaFieldReferences } from '../rules/formula-evaluator';
 import { validateDraftSchema } from './draft-validator';
 import { ValidationResult } from './types';
 import { validateRulesSemantic, validateCalculationsSemantic } from './rules-validator';
@@ -72,9 +73,19 @@ export function validatePublishableSchema(
     if (field.type !== 'calculated' || !field.calculationConfig) continue;
     const config = field.calculationConfig;
     const path = `field[${field.id}].calculationConfig`;
-    if (!config.source && !config.operands?.length) fail(path, 'INVALID_CALCULATION_CONFIG', 'A calculation needs operands or a grid source');
+    if (!config.source && !config.operands?.length && !config.formula) {
+      fail(path, 'INVALID_CALCULATION_CONFIG', 'A calculation needs operands, a formula, or a grid source');
+    }
     for (const [i, operand] of (config.operands ?? []).entries()) {
       if (!ids.has(operand) && !keys.has(operand)) fail(`${path}.operands[${i}]`, 'BROKEN_CALCULATION_REF', 'Calculation operand does not exist');
+    }
+    if (config.formula && typeof config.formula === 'string') {
+      const deps = extractFormulaFieldReferences(config.formula);
+      for (const dep of deps) {
+        if (!ids.has(dep) && !keys.has(dep)) {
+          fail(`${path}.formula`, 'BROKEN_CALCULATION_REF', `Formula references non-existent field "${dep}"`);
+        }
+      }
     }
     if (config.source) {
       const [tabKey, columnKey, extra] = config.source.split('.');

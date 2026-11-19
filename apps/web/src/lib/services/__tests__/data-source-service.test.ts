@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { DataSourceService } from "../data-source-service";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DataSourceService, isSafeExternalApiUrl } from "../data-source-service";
 import type {
   DataSourceDetail,
   DataSourceEntity,
@@ -14,7 +14,7 @@ import type {
   DataSourceSummary,
 } from "../../repositories/data-source-repository";
 import type { MembershipRepository } from "../../repositories/membership-repository";
-import type { OrganizationMembership, PlatformRole } from "@field/types";
+import type { OrganizationMembership, OrganizationMemberRosterItem, PlatformRole } from "@field/types";
 import {
   MINIMAL_VALID_SCHEMA,
   validatePublishableSchema,
@@ -26,6 +26,7 @@ class MockMembershipRepository implements MembershipRepository {
     string,
     { role: PlatformRole; status: "active" | "disabled" }
   >();
+  private rosters = new Map<string, OrganizationMemberRosterItem[]>();
 
   setMembership(
     userId: string,
@@ -34,6 +35,10 @@ class MockMembershipRepository implements MembershipRepository {
     status: "active" | "disabled" = "active",
   ) {
     this.memberships.set(`${userId}:${orgId}`, { role, status });
+  }
+
+  setRoster(orgId: string, roster: OrganizationMemberRosterItem[]) {
+    this.rosters.set(orgId, roster);
   }
 
   async findByUserId(): Promise<OrganizationMembership[]> {
@@ -57,8 +62,8 @@ class MockMembershipRepository implements MembershipRepository {
     };
   }
 
-  async getRoster(): Promise<any> {
-    return [];
+  async getRoster(orgId: string): Promise<OrganizationMemberRosterItem[]> {
+    return this.rosters.get(orgId) ?? [];
   }
 
   async manageMembership(): Promise<any> {
@@ -543,5 +548,305 @@ describe("DataSourceService & Phase 4 Lookups", () => {
       "fields.primary_cost_center",
       "details.line_items.r1.line_cost_center",
     ]);
+  });
+
+  it("resolves active member roster lookups for tenant organizations", async () => {
+    const admin = "usr_admin_1";
+    const org = "org_roster_test";
+    membershipRepo.setMembership(admin, org, "business_admin", "active");
+
+    membershipRepo.setRoster(org, [
+      {
+        membership_id: "mem_1",
+        organization_id: org,
+        user_id: "usr_alice",
+        role_key: "employee",
+        status: "active",
+        display_name: "Alice Smith",
+        email: "alice@example.com",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        membership_id: "mem_2",
+        organization_id: org,
+        user_id: "usr_bob",
+        role_key: "employee",
+        status: "disabled",
+        display_name: "Bob Jones",
+        email: "bob@example.com",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        membership_id: "mem_3",
+        organization_id: org,
+        user_id: "usr_charlie",
+        role_key: "manager",
+        status: "active",
+        display_name: null,
+        first_name: "Charlie",
+        last_name: "Brown",
+        email: "charlie@example.com",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    const options = await service.resolveLookupOptions({
+      userId: admin,
+      organizationId: org,
+      targetEntity: "members",
+      sourceType: "table",
+    });
+
+    expect(options).toHaveLength(2);
+    expect(options).toEqual([
+      { key: "usr_alice", value: "usr_alice", label: "Alice Smith" },
+      { key: "usr_charlie", value: "usr_charlie", label: "Charlie Brown" },
+    ]);
+  });
+
+  describe("SSRF guard validation", () => {
+    it("blocks private, local, and metadata endpoints", () => {
+      expect(isSafeExternalApiUrl("http://localhost:3000/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://127.0.0.1:8080/data").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://10.0.0.1/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://172.16.5.1/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://192.168.1.100/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://169.254.169.254/latest/meta-data").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://metadata.google.internal/computeMetadata").safe).toBe(false);
+      expect(isSafeExternalApiUrl("ftp://example.com/api").safe).toBe(false);
+    });
+
+    it("allows valid public https endpoints", () => {
+      expect(isSafeExternalApiUrl("https://api.example.com/v1/items").safe).toBe(true);
+      expect(isSafeExternalApiUrl("https://jsonplaceholder.typicode.com/users").safe).toBe(true);
+    });
+
+    it("blocks IPv6 loopback, link-local, and IPv4-mapped addresses", () => {
+      expect(isSafeExternalApiUrl("http://[::1]/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://[fe80::1]/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://[fc00::1]/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://[fd00::1]/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://[::ffff:127.0.0.1]/api").safe).toBe(false);
+      expect(isSafeExternalApiUrl("http://[::ffff:7f00:1]/api").safe).toBe(false);
+    });
+
+    it("rejects SSRF endpoint when resolving api lookup", async () => {
+      const admin = "usr_admin_ssrf";
+      const org = "org_ssrf_test";
+      membershipRepo.setMembership(admin, org, "business_admin", "active");
+
+      await expect(
+        service.resolveLookupOptions({
+          userId: admin,
+          organizationId: org,
+          targetEntity: "external_inventory",
+          sourceType: "api",
+          apiEndpoint: "http://127.0.0.1:3000/secret",
+        }),
+      ).rejects.toThrow(/SSRF validation blocked request/);
+    });
+  });
+
+  describe("External API lookup security and streaming bounds", () => {
+    const admin = "usr_admin_api_test";
+    const org = "org_api_test";
+    const originalFetch = globalThis.fetch;
+
+    beforeEach(() => {
+      membershipRepo.setMembership(admin, org, "business_admin", "active");
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+      vi.restoreAllMocks();
+    });
+
+    it("rejects redirect responses when redirect: 'error' aborts redirection", async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(
+        new TypeError("Failed to fetch: redirect mode is set to error"),
+      );
+
+      await expect(
+        service.resolveLookupOptions({
+          userId: admin,
+          organizationId: org,
+          targetEntity: "inventory",
+          sourceType: "api",
+          apiEndpoint: "https://api.example.com/redirect",
+        }),
+      ).rejects.toThrow(/redirect mode is set to error/);
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "https://api.example.com/redirect",
+        expect.objectContaining({ redirect: "error" }),
+      );
+    });
+
+    it("rejects response when Content-Length header claims > 1 MB", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "content-length": "2000000" }),
+      } as any);
+
+      await expect(
+        service.resolveLookupOptions({
+          userId: admin,
+          organizationId: org,
+          targetEntity: "large_data",
+          sourceType: "api",
+          apiEndpoint: "https://api.example.com/oversized-header",
+        }),
+      ).rejects.toThrow(/Response size exceeds maximum allowed limit/);
+    });
+
+    it("rejects oversized streamed response (> 1 MB) while consuming stream even without Content-Length", async () => {
+      const chunk = new Uint8Array(600 * 1024); // 600 KB chunk
+      let emitted = 0;
+      let cancelled = false;
+
+      const stream = new ReadableStream({
+        pull(controller) {
+          if (emitted >= 3) {
+            controller.close();
+            return;
+          }
+          emitted++;
+          controller.enqueue(chunk);
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers(),
+        body: stream,
+      } as any);
+
+      await expect(
+        service.resolveLookupOptions({
+          userId: admin,
+          organizationId: org,
+          targetEntity: "stream_data",
+          sourceType: "api",
+          apiEndpoint: "https://api.example.com/stream-bomb",
+        }),
+      ).rejects.toThrow(/Response size exceeds maximum allowed limit/);
+
+      expect(cancelled).toBe(true);
+    });
+
+    it("rejects malformed or non-JSON responses safely", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "content-type": "text/html" }),
+        text: async () => "<html><head><title>500 Internal</title></head><body>Error</body></html>",
+      } as any);
+
+      await expect(
+        service.resolveLookupOptions({
+          userId: admin,
+          organizationId: org,
+          targetEntity: "bad_json",
+          sourceType: "api",
+          apiEndpoint: "https://api.example.com/not-json",
+        }),
+      ).rejects.toThrow(/malformed or non-JSON response/);
+    });
+
+    it("caps returned lookup options at 500 records when upstream returns more", async () => {
+      const largeArray = Array.from({ length: 650 }, (_, i) => ({
+        sku: `SKU_${i}`,
+        title: `Product Title ${i}`,
+      }));
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => JSON.stringify(largeArray),
+      } as any);
+
+      const options = await service.resolveLookupOptions({
+        userId: admin,
+        organizationId: org,
+        targetEntity: "catalog",
+        sourceType: "api",
+        apiEndpoint: "https://api.example.com/products",
+        valueField: "sku",
+        displayField: "title",
+      });
+
+      expect(options).toHaveLength(500);
+      expect(options[0]).toEqual({
+        key: "SKU_0",
+        value: "SKU_0",
+        label: "Product Title 0",
+      });
+      expect(options[499]).toEqual({
+        key: "SKU_499",
+        value: "SKU_499",
+        label: "Product Title 499",
+      });
+    });
+
+    it("handles timeout or network abort failures cleanly", async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(
+        new DOMException("The operation was aborted due to timeout", "AbortError"),
+      );
+
+      await expect(
+        service.resolveLookupOptions({
+          userId: admin,
+          organizationId: org,
+          targetEntity: "slow_api",
+          sourceType: "api",
+          apiEndpoint: "https://api.example.com/slow",
+        }),
+      ).rejects.toThrow(/The operation was aborted/);
+    });
+
+    it("successfully parses wrapped data object from external REST API", async () => {
+      const payload = {
+        data: [
+          { code: "DEPT_HR", name: "Human Resources" },
+          { code: "DEPT_ENG", name: "Engineering" },
+        ],
+      };
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "content-type": "application/json" }),
+        text: async () => JSON.stringify(payload),
+      } as any);
+
+      const options = await service.resolveLookupOptions({
+        userId: admin,
+        organizationId: org,
+        targetEntity: "departments",
+        sourceType: "api",
+        apiEndpoint: "https://api.example.com/departments",
+        valueField: "code",
+        displayField: "name",
+      });
+
+      expect(options).toEqual([
+        { key: "DEPT_HR", value: "DEPT_HR", label: "Human Resources" },
+        { key: "DEPT_ENG", value: "DEPT_ENG", label: "Engineering" },
+      ]);
+    });
   });
 });

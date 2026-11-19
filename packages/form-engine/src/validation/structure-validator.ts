@@ -48,10 +48,22 @@ export function validateStructure(value: unknown): ValidationError[] {
     if (v.type === 'calculated' && record(v.calculationConfig, `${path}.calculationConfig`, 'INVALID_CALCULATION_CONFIG')) {
       if (v.calculationConfig.operands !== undefined) strings(v.calculationConfig.operands, `${path}.calculationConfig.operands`, 'INVALID_CALCULATION_CONFIG');
       if (v.calculationConfig.source !== undefined && !text(v.calculationConfig.source)) fail(`${path}.calculationConfig.source`, 'INVALID_CALCULATION_CONFIG');
+      if (v.calculationConfig.formula !== undefined && (typeof v.calculationConfig.formula !== 'string' || !v.calculationConfig.formula.trim())) fail(`${path}.calculationConfig.formula`, 'INVALID_CALCULATION_CONFIG');
     }
     if (v.type === 'dropdown' && array(v.options, `${path}.options`, 'INVALID_FIELD')) {
+      const optionKeys = new Set<string>();
       v.options.forEach((option, i) => {
-        if (!object(option) || typeof option.label !== 'string' || !text(option.value)) fail(`${path}.options[${i}]`, 'INVALID_FIELD');
+        if (!object(option) || typeof option.label !== 'string') {
+          fail(`${path}.options[${i}]`, 'INVALID_FIELD');
+        } else if (!text(option.value) && !text(option.key)) {
+          fail(`${path}.options[${i}]`, 'INVALID_FIELD');
+        } else {
+          const canonical = String(option.key || option.value);
+          if (optionKeys.has(canonical)) {
+            fail(`${path}.options[${i}]`, 'DUPLICATE_OPTION_KEY', `Duplicate option key "${canonical}"`);
+          }
+          optionKeys.add(canonical);
+        }
       });
     }
   }

@@ -6,6 +6,7 @@ import { validateFormSettings, validateFormPermissions } from './settings-permis
 import { validateRulesSemantic, validateCalculationsSemantic } from './rules-validator';
 import { validateListViewSemantic } from './list-view-validator';
 import { validateWorkflowSemantic } from './workflow-validator';
+import { parseFormula } from '../rules/formula-evaluator';
 
 const VALID_FIELD_TYPES = ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'lookup', 'file', 'calculated'] as const;
 const VALID_TAB_TYPES = ['form', 'details', 'notes', 'documents'] as const;
@@ -109,9 +110,19 @@ export function validateDraftSchema(schema: unknown): ValidationResult {
       if (!c || typeof c !== 'object') {
         errors.push({ path: `${path}.calculationConfig`, message: 'Calculated field missing calculationConfig', code: 'INVALID_CALCULATION_CONFIG' });
       } else {
-        const validOps = ['add', 'subtract', 'multiply', 'divide', 'sum', 'min', 'max', 'count'];
+        const validOps = ['add', 'subtract', 'multiply', 'divide', 'sum', 'min', 'max', 'count', 'custom'];
         if (!c.operation || !validOps.includes(c.operation as string)) {
           errors.push({ path: `${path}.calculationConfig.operation`, message: `Invalid calculation operation: ${c.operation}`, code: 'INVALID_CALCULATION_CONFIG' });
+        }
+        if (c.formula && typeof c.formula === 'string') {
+          const pRes = parseFormula(c.formula);
+          if (pRes.errors.length > 0) {
+            errors.push({
+              path: `${path}.calculationConfig.formula`,
+              message: `Invalid formula syntax: ${pRes.errors.join('; ')}`,
+              code: 'INVALID_CALCULATION_CONFIG',
+            });
+          }
         }
       }
     }

@@ -1,4 +1,25 @@
 import { CalculatedFieldDefinition, FieldDefinition } from '../schema/fields';
+import {
+  evaluateFormula,
+  extractFormulaFieldReferences,
+  safeRound,
+} from './formula-evaluator';
+
+export {
+  evaluateFormula,
+  extractFormulaFieldReferences,
+  parseFormula,
+  refactorFormulaIdentifier,
+  safeRound,
+  tokenizeFormula,
+} from './formula-evaluator';
+export type {
+  ASTNode,
+  FormulaEvaluationResult,
+  FormulaParseResult,
+  Token,
+  TokenType,
+} from './formula-evaluator';
 
 export interface CalculationEvaluationResult {
   /** Map of calculated field keys to their computed values */
@@ -16,14 +37,6 @@ export function toNumber(val: unknown): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
-/**
- * Rounds a number to a fixed safe decimal precision (default 4 decimals)
- * to avoid IEEE 754 floating point precision artifacts.
- */
-export function safeRound(val: number, precision = 4): number {
-  const factor = Math.pow(10, precision);
-  return Math.round((val + Number.EPSILON) * factor) / factor;
-}
 
 /**
  * Topologically sorts calculated fields based on their operand dependencies
@@ -58,7 +71,11 @@ export function sortCalculatedFieldsTopologically(
 
     visiting.add(key);
 
-    const operands = calcField.calculationConfig.operands || [];
+    const config = calcField.calculationConfig;
+    let operands = Array.isArray(config.operands) ? [...config.operands] : [];
+    if (typeof config.formula === 'string' && config.formula.trim().length > 0) {
+      operands = [...operands, ...extractFormulaFieldReferences(config.formula)];
+    }
     for (const opRef of operands) {
       // Check if operand is another calculated field
       const depField = calcByKey.get(opRef);
@@ -126,7 +143,15 @@ export function evaluateCalculations(
   }
 
   // Work with a mutable copy of values including newly computed calculated fields
+  // Seed with both field.key and field.id so formulas referencing either identifier resolve reliably
   const currentValues: Record<string, unknown> = { ...formValues };
+  for (const f of fields) {
+    if (Object.prototype.hasOwnProperty.call(formValues, f.key)) {
+      currentValues[f.id] = formValues[f.key];
+    } else if (Object.prototype.hasOwnProperty.call(formValues, f.id)) {
+      currentValues[f.key] = formValues[f.id];
+    }
+  }
 
   function resolveOperand(ref: string): number | null {
     if (Object.prototype.hasOwnProperty.call(currentValues, ref)) {
@@ -145,11 +170,26 @@ export function evaluateCalculations(
 
   for (const field of sorted) {
     const config = field.calculationConfig;
+    const precision =
+      typeof config.precision === 'number' && config.precision >= 0
+        ? config.precision
+        : 4;
     let computed: number | null = null;
 
     try {
-      // 1. Grid details source (e.g. source: "tab_key.column_key")
-      if (config.source) {
+      // 0. Custom formula expression
+      if (config.formula || config.operation === 'custom') {
+        if (config.formula && config.formula.trim().length > 0) {
+          const evalRes = evaluateFormula(config.formula, currentValues, { precision });
+          computed = evalRes.value;
+          if (evalRes.error) {
+            result.errors.push(`Formula error in field ${field.key}: ${evalRes.error}`);
+          }
+        } else {
+          computed = null;
+        }
+      } else if (config.source) {
+        // 1. Grid details source (e.g. source: "tab_key.column_key")
         const [tabKey, colKey] = config.source.split('.');
         const rows = (tabKey && detailsData[tabKey]) || [];
 
@@ -215,11 +255,18 @@ export function evaluateCalculations(
             if (operands.length < 2) {
               computed = operands[0] ?? null;
             } else {
-              const numerator = operands[0] ?? 0;
-              const denominator = operands[1] ?? 0;
-              // Safe division by zero
-              if (denominator === 0 || !Number.isFinite(denominator)) {
-                computed = 0; // Safe zero fallback, avoids Infinity/NaN
+              const numerator = operands[0];
+              const denominator = operands[1];
+              if (
+                numerator === null ||
+                denominator === null ||
+                denominator === 0 ||
+                !Number.isFinite(denominator)
+              ) {
+                computed = null;
+                if (denominator === 0) {
+                  result.errors.push(`Division by zero in field ${field.key}`);
+                }
               } else {
                 computed = numerator / denominator;
               }
@@ -258,7 +305,7 @@ export function evaluateCalculations(
       }
 
       if (computed !== null && Number.isFinite(computed)) {
-        computed = safeRound(computed);
+        computed = safeRound(computed, precision);
       } else {
         computed = null;
       }
