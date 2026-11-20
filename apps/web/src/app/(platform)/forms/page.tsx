@@ -162,6 +162,13 @@ export default function FormLibraryPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-3">
+                        <Link
+                          className="font-medium text-slate-600 hover:text-slate-900"
+                          href={`/submissions?formId=${form.id}`}
+                          title="View form submissions"
+                        >
+                          Submissions
+                        </Link>
                         {Boolean(form.published_version_number) && (
                           <>
                             <Link

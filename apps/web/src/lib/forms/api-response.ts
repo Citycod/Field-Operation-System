@@ -225,4 +225,43 @@ export function tenantManagementApiError(error: unknown) {
   );
 }
 
+export function submissionApiError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Unexpected submission operation failure";
+
+  if (message === "AUTHENTICATION_REQUIRED") {
+    return NextResponse.json(
+      { error: "Sign in is required.", code: "UNAUTHENTICATED" },
+      { status: 401 },
+    );
+  }
+
+  if (
+    message.startsWith("Unauthorized:") ||
+    message.includes("Unauthorized") ||
+    message.includes("not permitted") ||
+    message.includes("not authorized") ||
+    message.includes("does not have active access")
+  ) {
+    return NextResponse.json(
+      { error: message, code: "FORBIDDEN" },
+      { status: 403 },
+    );
+  }
+
+  if (message.includes("not found")) {
+    return NextResponse.json(
+      { error: message, code: "NOT_FOUND" },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json(
+    { error: message, code: "SUBMISSION_OPERATION_FAILED" },
+    { status: 400 },
+  );
+}
+
 
