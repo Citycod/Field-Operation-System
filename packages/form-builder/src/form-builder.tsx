@@ -2298,39 +2298,41 @@ function DropdownOptionsEditor({
                     placeholder="Display Name"
                     onChange={(e) => handleUpdateLabel(i, e.target.value)}
                   />
-                  <span
-                    className="fb-option-key-badge"
-                    title={`Immutable system key: ${opt.key || opt.value}`}
-                  >
-                    🔒 {opt.key || opt.value}
-                  </span>
-                  <div className="fb-option-actions">
-                    <button
-                      type="button"
-                      className="fb-option-btn-icon"
-                      title="Move up"
-                      disabled={i === 0}
-                      onClick={() => handleMove(i, -1)}
+                  <div className="fb-option-meta">
+                    <span
+                      className="fb-option-key-badge"
+                      title={`Immutable system key: ${opt.key || opt.value}`}
                     >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      className="fb-option-btn-icon"
-                      title="Move down"
-                      disabled={i === options.length - 1}
-                      onClick={() => handleMove(i, 1)}
-                    >
-                      ▼
-                    </button>
-                    <button
-                      type="button"
-                      className="fb-option-btn-icon danger"
-                      title="Delete option"
-                      onClick={() => handleRemove(i)}
-                    >
-                      ✕
-                    </button>
+                      🔒 {opt.key || opt.value}
+                    </span>
+                    <div className="fb-option-actions">
+                      <button
+                        type="button"
+                        className="fb-option-btn-icon"
+                        title="Move up"
+                        disabled={i === 0}
+                        onClick={() => handleMove(i, -1)}
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        className="fb-option-btn-icon"
+                        title="Move down"
+                        disabled={i === options.length - 1}
+                        onClick={() => handleMove(i, 1)}
+                      >
+                        ▼
+                      </button>
+                      <button
+                        type="button"
+                        className="fb-option-btn-icon danger"
+                        title="Delete option"
+                        onClick={() => handleRemove(i)}
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2341,34 +2343,38 @@ function DropdownOptionsEditor({
             </p>
           )}
 
-          <div className="fb-add-option-row">
-            <input
-              className="fb-option-input"
-              aria-label="New option display name"
-              placeholder="Option name (e.g. Office Supplies)"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddOption();
-                }
-              }}
-            />
+          <div className="fb-add-option-container">
+            <div className="fb-add-option-row">
+              <input
+                className="fb-option-input"
+                aria-label="New option display name"
+                placeholder="Option name (e.g. Office Supplies)"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddOption();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="fb-button fb-button-sm"
+                style={{ fontSize: "12px", padding: "4px 10px", flexShrink: 0 }}
+                disabled={!newLabel.trim()}
+                onClick={() => handleAddOption()}
+              >
+                Add
+              </button>
+            </div>
             {prospectiveKey && (
-              <span className="fb-option-key-badge" title="Generated immutable key">
-                → {prospectiveKey}
-              </span>
+              <div style={{ marginTop: "4px" }}>
+                <span className="fb-option-key-badge" title="Generated immutable key">
+                  → {prospectiveKey}
+                </span>
+              </div>
             )}
-            <button
-              type="button"
-              className="fb-button fb-button-sm"
-              style={{ fontSize: "12px", padding: "4px 10px" }}
-              disabled={!newLabel.trim()}
-              onClick={() => handleAddOption()}
-            >
-              Add
-            </button>
           </div>
 
           <textarea
