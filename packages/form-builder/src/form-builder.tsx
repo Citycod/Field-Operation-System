@@ -774,8 +774,114 @@ export function FormBuilder({
       ),
     });
 
-  const validateFor = (action: "preview" | "save") => {
-    const result = validateDraftSchema(schema);
+  const normalizeDraftKeysBeforeSave = (currentSchema: FormSchemaV1): FormSchemaV1 => {
+    let next = cloneSchema(currentSchema);
+    let mutated = false;
+
+    // 1. Header sections
+    const usedSectionKeys = new Set(allSectionKeys);
+    next.header.sections = next.header.sections.map((sec) => {
+      if (
+        isDefaultPlaceholderKey(sec.key) &&
+        sec.title &&
+        sec.title.trim() &&
+        sec.title.trim().toLowerCase() !== "new section"
+      ) {
+        usedSectionKeys.delete(sec.key);
+        const derived = generateUniqueFieldKey(sec.title.trim(), usedSectionKeys);
+        usedSectionKeys.add(derived);
+        mutated = true;
+        return { ...sec, key: derived };
+      }
+      return sec;
+    });
+
+    // 2. Form tab sections
+    next.tabs = next.tabs.map((tab) => {
+      if (tab.type === "form") {
+        return {
+          ...tab,
+          sections: tab.sections.map((sec) => {
+            if (
+              isDefaultPlaceholderKey(sec.key) &&
+              sec.title &&
+              sec.title.trim() &&
+              sec.title.trim().toLowerCase() !== "new section"
+            ) {
+              usedSectionKeys.delete(sec.key);
+              const derived = generateUniqueFieldKey(sec.title.trim(), usedSectionKeys);
+              usedSectionKeys.add(derived);
+              mutated = true;
+              return { ...sec, key: derived };
+            }
+            return sec;
+          }),
+        };
+      }
+      return tab;
+    });
+
+    // 3. Fields & Columns
+    const usedFieldKeys = new Set(allFieldKeys);
+    const keyReplacements: Array<{ oldKey: string; newKey: string }> = [];
+
+    const normalizeField = <T extends FieldDefinition | DetailsColumnDefinition>(
+      f: T,
+    ): T => {
+      if (
+        isDefaultPlaceholderKey(f.key) &&
+        f.label &&
+        f.label.trim() &&
+        f.label.trim().toLowerCase() !== FIELD_LABELS[f.type].toLowerCase()
+      ) {
+        usedFieldKeys.delete(f.key);
+        const derived = generateUniqueFieldKey(f.label.trim(), usedFieldKeys);
+        usedFieldKeys.add(derived);
+        keyReplacements.push({ oldKey: f.key, newKey: derived });
+        mutated = true;
+        return { ...f, key: derived };
+      }
+      return f;
+    };
+
+    next.header.sections = next.header.sections.map((sec) => ({
+      ...sec,
+      fields: sec.fields.map(normalizeField),
+    }));
+
+    next.tabs = next.tabs.map((tab) => {
+      if (tab.type === "form") {
+        return {
+          ...tab,
+          sections: tab.sections.map((sec) => ({
+            ...sec,
+            fields: sec.fields.map(normalizeField),
+          })),
+        };
+      } else if (tab.type === "details") {
+        return {
+          ...tab,
+          configuration: {
+            ...tab.configuration,
+            columns: tab.configuration.columns.map(normalizeField),
+          },
+        };
+      }
+      return tab;
+    });
+
+    for (const { oldKey, newKey } of keyReplacements) {
+      next = cascadeFormulaKeyRename(next, oldKey, newKey);
+    }
+
+    if (mutated) {
+      update(next);
+    }
+    return next;
+  };
+
+  const validateFor = (action: "preview" | "save", targetSchema = schema) => {
+    const result = validateDraftSchema(targetSchema);
     setValidation(result);
     if (!result.valid) {
       setNotice(
@@ -787,7 +893,8 @@ export function FormBuilder({
   };
 
   const openPreview = () => {
-    if (validateFor("preview")) {
+    const targetSchema = normalizeDraftKeysBeforeSave(schema);
+    if (validateFor("preview", targetSchema)) {
       rememberOverlayTrigger();
       setPreviewOpen(true);
       setNotice("Preview is using the current local draft schema.");
@@ -795,10 +902,11 @@ export function FormBuilder({
   };
 
   const save = async () => {
-    if (!validateFor("save")) return;
+    const targetSchema = normalizeDraftKeysBeforeSave(schema);
+    if (!validateFor("save", targetSchema)) return;
     setSaving(true);
     try {
-      await onSave?.(schema);
+      await onSave?.(targetSchema);
       setNotice(
         onSave
           ? "Draft save completed through the host callback."
@@ -816,8 +924,9 @@ export function FormBuilder({
   };
 
   const openPublishDialog = () => {
+    const targetSchema = normalizeDraftKeysBeforeSave(schema);
     rememberOverlayTrigger();
-    const result = validatePublishableSchema(schema, {
+    const result = validatePublishableSchema(targetSchema, {
       dataSources: dataSources?.map((ds) => ({
         id: ds.id,
         key: ds.key,
@@ -1842,7 +1951,8 @@ function SectionCard({
               <span>
                 <strong>{field.label}</strong>
                 <small>
-                  {FIELD_LABELS[field.type]} · {field.key}
+                  {FIELD_LABELS[field.type]}
+                  {!isDefaultPlaceholderKey(field.key) && ` · ${field.key}`}
                 </small>
               </span>
               {field.required && <em>Required</em>}
@@ -2106,6 +2216,14 @@ function SectionProperties({
           onBlur={handleTitleBlur}
         />
       </label>
+      <div className="fb-key-status" style={{ margin: "2px 0 10px", fontSize: "11px", color: "var(--fb-muted, #5f6f86)" }}>
+        <span>Section Key: <code>{section.key}</code></span>
+        {isDefaultPlaceholderKey(section.key) && (
+          <span style={{ marginLeft: "6px", fontStyle: "italic", color: "var(--fb-green, #08783e)" }}>
+            (auto-derives from title)
+          </span>
+        )}
+      </div>
 
       <details className="fb-advanced-settings">
         <summary className="fb-advanced-summary">Advanced / Developer Settings</summary>
@@ -2122,7 +2240,7 @@ function SectionProperties({
           ) : (
             <>
               <label>
-                Section Key
+                Section Key (Developer Override)
                 <input
                   aria-label="Section key"
                   value={keyDraft}
@@ -2145,7 +2263,7 @@ function SectionProperties({
                 </div>
               )}
               <p className="fb-help" style={{ margin: "4px 0 0" }}>
-                Unique section identifier used in layout and rules.
+                Auto-generated from title. You do not need to type or edit this unless you need a custom developer key.
               </p>
             </>
           )}
@@ -2915,6 +3033,14 @@ function FieldProperties({
           onBlur={handleLabelBlur}
         />
       </label>
+      <div className="fb-key-status" style={{ margin: "2px 0 10px", fontSize: "11px", color: "var(--fb-muted, #5f6f86)" }}>
+        <span>Field Key: <code>{field.key}</code></span>
+        {isDefaultPlaceholderKey(field.key) && (
+          <span style={{ marginLeft: "6px", fontStyle: "italic", color: "var(--fb-green, #08783e)" }}>
+            (auto-derives from label)
+          </span>
+        )}
+      </div>
 
       <details className="fb-advanced-settings">
         <summary className="fb-advanced-summary">Advanced / Developer Settings</summary>
@@ -2931,7 +3057,7 @@ function FieldProperties({
           ) : (
             <>
               <label>
-                Field Key
+                Field Key (Developer Override)
                 <input
                   aria-label="Field key"
                   value={keyDraft}
@@ -2954,7 +3080,7 @@ function FieldProperties({
                 </div>
               )}
               <p className="fb-help" style={{ margin: "4px 0 0" }}>
-                Unique identifier used in formulas, submission payloads, and exports.
+                Auto-generated from label. You do not need to type or edit this unless you need a custom developer key.
               </p>
             </>
           )}

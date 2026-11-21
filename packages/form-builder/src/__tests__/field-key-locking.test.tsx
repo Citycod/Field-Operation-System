@@ -160,7 +160,7 @@ describe("Form Builder Field Key Locking and Behavior", () => {
 
     // In locked mode, a lock badge is shown and key input is not editable
     expect(screen.getByText(/🔒 Key:/)).toBeTruthy();
-    expect(screen.getByText("quantity")).toBeTruthy();
+    expect(screen.getAllByText("quantity").length).toBeGreaterThan(0);
     expect(
       screen.getByText(/Key is immutable because this form has been published or has recorded submissions/),
     ).toBeTruthy();
@@ -248,7 +248,7 @@ describe("Form Builder Field Key Locking and Behavior", () => {
     // Check Advanced Settings
     expect(screen.getByText("Advanced / Developer Settings")).toBeTruthy();
     expect(screen.getByText(/🔒 Key:/)).toBeTruthy();
-    expect(screen.getByText("sec_header")).toBeTruthy();
+    expect(screen.getAllByText("sec_header").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Section key")).toBeNull();
   });
 
@@ -280,5 +280,44 @@ describe("Form Builder Field Key Locking and Behavior", () => {
 
     const updatedSchema = onChange.mock.lastCall?.[0] as FormSchemaV1;
     expect(updatedSchema.header.sections[0].key).toBe("requisition_header");
+  });
+
+  it("automatically derives keys on save even if the user never blurred the title or label", () => {
+    const onSave = vi.fn();
+    const testSchema = createTestSchema();
+    // Add a section with default placeholder key "section" and custom title
+    testSchema.header.sections.push({
+      id: "sec_new",
+      key: "section",
+      title: "Vendor Details",
+      order: 1,
+      width: "full",
+      fields: [
+        {
+          id: "fld_new",
+          key: "text",
+          label: "Contact Email",
+          type: "text",
+          order: 0,
+        },
+      ],
+    });
+
+    render(
+      <FormBuilder
+        initialSchema={testSchema}
+        isLocked={false}
+        onSave={onSave}
+      />,
+    );
+
+    // Click Save Draft directly without blurring anything
+    fireEvent.click(screen.getByRole("button", { name: "Save Draft" }));
+
+    expect(onSave).toHaveBeenCalled();
+    const savedSchema = onSave.mock.lastCall?.[0] as FormSchemaV1;
+    const vendorSec = savedSchema.header.sections.find((s) => s.id === "sec_new");
+    expect(vendorSec?.key).toBe("vendor_details");
+    expect(vendorSec?.fields[0].key).toBe("contact_email");
   });
 });
