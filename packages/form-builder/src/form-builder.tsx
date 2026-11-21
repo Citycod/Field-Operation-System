@@ -274,6 +274,20 @@ export function FormBuilder({
 
   const allTabKeys = schema.tabs.map((tab) => tab.key);
   const allFieldKeys = collectFieldKeys(schema);
+  const allSectionKeys = useMemo(() => {
+    const keys: string[] = [];
+    schema.header.sections.forEach((s) => {
+      if (s.key) keys.push(s.key);
+    });
+    schema.tabs.forEach((t) => {
+      if (t.type === "form") {
+        t.sections.forEach((s) => {
+          if (s.key) keys.push(s.key);
+        });
+      }
+    });
+    return keys;
+  }, [schema]);
 
   const selectedSection = useMemo(() => {
     if (selection.kind !== "section") return undefined;
@@ -321,10 +335,7 @@ export function FormBuilder({
   const addSection = (area: "header" | "tab") => {
     const id = idFactory.current("section");
     if (area === "header") {
-      const key = uniqueKey(
-        "section",
-        schema.header.sections.map((section) => section.key),
-      );
+      const key = generateUniqueFieldKey("section", allSectionKeys);
       update({
         ...schema,
         header: {
@@ -344,10 +355,7 @@ export function FormBuilder({
       return;
     }
     if (!activeTab || activeTab.type !== "form") return;
-    const key = uniqueKey(
-      "section",
-      activeTab.sections.map((section) => section.key),
-    );
+    const key = generateUniqueFieldKey("section", allSectionKeys);
     update({
       ...schema,
       tabs: schema.tabs.map((tab) =>
@@ -1225,6 +1233,8 @@ export function FormBuilder({
             <SectionProperties
               section={selectedSection}
               area={selection.area}
+              allSectionKeys={allSectionKeys}
+              isLocked={isFormLocked}
               onChange={(changes) =>
                 update(
                   updateSection(
@@ -2020,16 +2030,67 @@ function HeaderProperties({
 function SectionProperties({
   section,
   area,
+  allSectionKeys = [],
+  isLocked = false,
   onChange,
   onRemove,
 }: {
   section: HeaderSectionDefinition | FormSectionDefinition;
   area: "header" | "tab";
+  allSectionKeys?: string[];
+  isLocked?: boolean;
   onChange: (
     changes: Partial<HeaderSectionDefinition & FormSectionDefinition>,
   ) => void;
   onRemove: () => void;
 }) {
+  const [titleDraft, setTitleDraft] = useState(section.title);
+  const [keyDraft, setKeyDraft] = useState(section.key);
+  const [keyError, setKeyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTitleDraft(section.title);
+    setKeyDraft(section.key);
+    setKeyError(null);
+  }, [section.id, section.title, section.key]);
+
+  const handleTitleBlur = () => {
+    const trimmed = titleDraft.trim();
+    if (!trimmed) return;
+    // Generate key from title once on first blur if key is a default placeholder
+    if (isDefaultPlaceholderKey(section.key)) {
+      const otherKeys = allSectionKeys.filter((k) => k !== section.key);
+      const generated = generateUniqueFieldKey(trimmed, otherKeys);
+      setKeyDraft(generated);
+      onChange({ key: generated });
+    }
+  };
+
+  const handleKeyChange = (val: string) => {
+    setKeyDraft(val);
+    const sanitized = val.toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+    const validation = validateFieldKey(sanitized, allSectionKeys, section.key);
+    setKeyError(validation.error || null);
+    if (validation.valid && sanitized !== section.key) {
+      onChange({ key: sanitized });
+    }
+  };
+
+  const handleKeyBlur = () => {
+    const trimmed = keyDraft.trim();
+    const sanitized = slugifyFieldKey(trimmed);
+    const validation = validateFieldKey(sanitized, allSectionKeys, section.key);
+    if (!validation.valid) {
+      setKeyDraft(section.key);
+      setKeyError(null);
+    } else {
+      setKeyDraft(sanitized);
+      if (sanitized !== section.key) {
+        onChange({ key: sanitized });
+      }
+    }
+  };
+
   return (
     <div className="fb-property-form">
       <h3>Section properties</h3>
@@ -2037,18 +2098,59 @@ function SectionProperties({
         Title
         <input
           aria-label="Section title"
-          value={section.title}
-          onChange={(event) => onChange({ title: event.target.value })}
+          value={titleDraft}
+          onChange={(event) => {
+            setTitleDraft(event.target.value);
+            onChange({ title: event.target.value });
+          }}
+          onBlur={handleTitleBlur}
         />
       </label>
-      <label>
-        Key
-        <input
-          aria-label="Section key"
-          value={section.key}
-          onChange={(event) => onChange({ key: slugify(event.target.value) })}
-        />
-      </label>
+
+      <details className="fb-advanced-settings">
+        <summary className="fb-advanced-summary">Advanced / Developer Settings</summary>
+        <div className="fb-advanced-body">
+          {isLocked ? (
+            <div className="fb-key-locked-container">
+              <span className="fb-option-key-badge" title="Immutable section key">
+                🔒 Key: <code>{section.key}</code>
+              </span>
+              <p className="fb-help" style={{ margin: "4px 0 0" }}>
+                Key is immutable because this form has been published or has recorded submissions.
+              </p>
+            </div>
+          ) : (
+            <>
+              <label>
+                Section Key
+                <input
+                  aria-label="Section key"
+                  value={keyDraft}
+                  onChange={(e) => handleKeyChange(e.target.value)}
+                  onBlur={handleKeyBlur}
+                />
+              </label>
+              {keyError && (
+                <div
+                  className="fb-field-key-error"
+                  role="alert"
+                  style={{
+                    color: "var(--fb-danger, #d13438)",
+                    fontSize: "11px",
+                    marginTop: "2px",
+                    fontWeight: 500,
+                  }}
+                >
+                  {keyError}
+                </div>
+              )}
+              <p className="fb-help" style={{ margin: "4px 0 0" }}>
+                Unique section identifier used in layout and rules.
+              </p>
+            </>
+          )}
+        </div>
+      </details>
       {area === "header" ? (
         <label>
           Width

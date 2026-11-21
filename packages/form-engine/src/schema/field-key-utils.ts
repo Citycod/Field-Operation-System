@@ -90,6 +90,7 @@ const DEFAULT_TYPE_SLUGS = new Set([
   'column',
   'field',
   'item',
+  'section',
 ]);
 
 /**

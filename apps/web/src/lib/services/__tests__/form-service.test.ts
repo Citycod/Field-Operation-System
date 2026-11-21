@@ -1499,6 +1499,115 @@ describe('FormService', () => {
         'Cannot modify field key "serial_number" to "imei_number" because the form is locked (already published or has submissions).',
       );
     });
+
+    it('deterministically generates section keys and logs a warning when section is saved with missing key', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const created = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'sec_fallback_form',
+        title: 'Section Fallback Form',
+      });
+
+      const schemaWithMissingSecKey = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      schemaWithMissingSecKey.header.sections = [
+        {
+          id: 'sec_vendor_info',
+          key: '',
+          title: 'Vendor Information',
+          order: 0,
+          fields: [
+            {
+              id: 'f_vendor',
+              key: 'vendor_name',
+              label: 'Vendor Name',
+              type: 'text',
+              order: 0,
+            },
+          ],
+        },
+      ];
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+        schema: schemaWithMissingSecKey,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[FormService] Section "sec_vendor_info" (title: "Vendor Information") was missing a key. Generated fallback key: "vendor_information".'),
+      );
+
+      const reloaded = await formService.getEditableDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+      });
+
+      expect(reloaded?.draft?.schema_jsonb.header.sections[0].key).toBe('vendor_information');
+      warnSpy.mockRestore();
+    });
+
+    it('rejects section key edit with clear error once the form is locked', async () => {
+      const created = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'sec_lock_form',
+        title: 'Section Lock Form',
+      });
+
+      const schema = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      schema.header.sections = [
+        {
+          id: 'sec_fixed_1',
+          key: 'section_fixed',
+          title: 'Fixed Section',
+          order: 0,
+          fields: [
+            {
+              id: 'fld_title',
+              key: 'fld_title',
+              label: 'Title',
+              type: 'text',
+              order: 0,
+            },
+          ],
+        },
+      ];
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+        schema,
+      });
+
+      await formService.publishForm({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+      });
+
+      // Try editing section key on the published form
+      const illegalSchema = structuredClone(schema);
+      illegalSchema.header.sections[0].key = 'section_renamed';
+
+      await expect(
+        formService.saveDraft({
+          userId: userA,
+          organizationId: orgA,
+          formId: created.form.id,
+          versionId: created.version.id,
+          schema: illegalSchema,
+        }),
+      ).rejects.toThrow(
+        'Cannot modify section key "section_fixed" to "section_renamed" because the form is locked (already published or has submissions).',
+      );
+    });
   });
 
 });

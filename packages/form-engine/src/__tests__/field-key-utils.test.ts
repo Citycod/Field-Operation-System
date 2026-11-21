@@ -77,6 +77,8 @@ describe('Field Key Utilities', () => {
       expect(isDefaultPlaceholderKey('column_3')).toBe(true);
       expect(isDefaultPlaceholderKey('field')).toBe(true);
       expect(isDefaultPlaceholderKey('field_5')).toBe(true);
+      expect(isDefaultPlaceholderKey('section')).toBe(true);
+      expect(isDefaultPlaceholderKey('section_2')).toBe(true);
     });
 
     it('identifies custom user-generated keys as non-placeholders', () => {

@@ -397,7 +397,7 @@ export class FormService {
       action: 'manage_form',
     });
 
-    // 1. Missing-key fallback: deterministically generate keys for any field or detail column missing a key
+    // 1. Missing-key fallback: deterministically generate keys for any field, detail column, or section missing a key
     const usedKeys = new Set<string>();
     const collectExistingKeys = (item: { key?: string }) => {
       if (item?.key && typeof item.key === 'string' && item.key.trim().length > 0) {
@@ -405,8 +405,16 @@ export class FormService {
       }
     };
 
+    const usedSectionKeys = new Set<string>();
+    const collectExistingSectionKeys = (sec: { key?: string }) => {
+      if (sec?.key && typeof sec.key === 'string' && sec.key.trim().length > 0) {
+        usedSectionKeys.add(sec.key.trim());
+      }
+    };
+
     if (params.schema?.header?.sections) {
       for (const section of params.schema.header.sections) {
+        collectExistingSectionKeys(section);
         for (const f of section.fields || []) {
           collectExistingKeys(f);
         }
@@ -416,6 +424,7 @@ export class FormService {
       for (const tab of params.schema.tabs) {
         if (tab.type === 'form' && tab.sections) {
           for (const section of tab.sections) {
+            collectExistingSectionKeys(section);
             for (const f of section.fields || []) {
               collectExistingKeys(f);
             }
@@ -427,6 +436,17 @@ export class FormService {
         }
       }
     }
+
+    const ensureSectionKey = (sec: { id?: string; title?: string; key?: string }) => {
+      if (!sec.key || typeof sec.key !== 'string' || !sec.key.trim()) {
+        const fallbackKey = generateUniqueFieldKey(sec.title || 'section', usedSectionKeys);
+        sec.key = fallbackKey;
+        usedSectionKeys.add(fallbackKey);
+        console.warn(
+          `[FormService] Section "${sec.id || 'unknown'}" (title: "${sec.title || ''}") was missing a key. Generated fallback key: "${fallbackKey}".`,
+        );
+      }
+    };
 
     const ensureFieldKey = (item: { id?: string; label?: string; key?: string }) => {
       if (!item.key || typeof item.key !== 'string' || !item.key.trim()) {
@@ -441,6 +461,7 @@ export class FormService {
 
     if (params.schema?.header?.sections) {
       for (const section of params.schema.header.sections) {
+        ensureSectionKey(section);
         for (const f of section.fields || []) {
           ensureFieldKey(f);
         }
@@ -450,6 +471,7 @@ export class FormService {
       for (const tab of params.schema.tabs) {
         if (tab.type === 'form' && tab.sections) {
           for (const section of tab.sections) {
+            ensureSectionKey(section);
             for (const f of section.fields || []) {
               ensureFieldKey(f);
             }
@@ -479,12 +501,15 @@ export class FormService {
     const isLocked = Boolean(auth.form.current_published_version_id || hasSubmissions);
 
     if (isLocked) {
-      // Gather existing field keys by field ID from current draft and/or published version
+      // Gather existing field and section keys by ID from current draft and/or published version
       const existingFieldKeys = new Map<string, string>();
-      const recordFields = (schemaObj?: FormSchemaV1 | null) => {
+      const existingSectionKeys = new Map<string, string>();
+
+      const recordItems = (schemaObj?: FormSchemaV1 | null) => {
         if (!schemaObj) return;
         if (schemaObj.header?.sections) {
           for (const section of schemaObj.header.sections) {
+            if (section.id && section.key) existingSectionKeys.set(section.id, section.key);
             for (const f of section.fields || []) {
               if (f.id && f.key) existingFieldKeys.set(f.id, f.key);
             }
@@ -494,6 +519,7 @@ export class FormService {
           for (const tab of schemaObj.tabs) {
             if (tab.type === 'form' && tab.sections) {
               for (const section of tab.sections) {
+                if (section.id && section.key) existingSectionKeys.set(section.id, section.key);
                 for (const f of section.fields || []) {
                   if (f.id && f.key) existingFieldKeys.set(f.id, f.key);
                 }
@@ -508,12 +534,24 @@ export class FormService {
       };
 
       const existingDraft = await this.formRepository.getDraftVersion(params.formId, params.organizationId);
-      recordFields(existingDraft?.schema_jsonb as FormSchemaV1 | undefined);
+      recordItems(existingDraft?.schema_jsonb as FormSchemaV1 | undefined);
 
       if (auth.form.current_published_version_id) {
         const publishedVersion = await this.formRepository.getPublishedVersion(params.formId, params.organizationId);
-        recordFields(publishedVersion?.schema_jsonb as FormSchemaV1 | undefined);
+        recordItems(publishedVersion?.schema_jsonb as FormSchemaV1 | undefined);
       }
+
+      // Verify that no existing section has changed its key
+      const checkSectionNotChanged = (sec: { id?: string; key?: string }) => {
+        if (sec.id && existingSectionKeys.has(sec.id)) {
+          const oldKey = existingSectionKeys.get(sec.id)!;
+          if (oldKey !== sec.key) {
+            throw new Error(
+              `Cannot modify section key "${oldKey}" to "${sec.key}" because the form is locked (already published or has submissions).`,
+            );
+          }
+        }
+      };
 
       // Verify that no existing field has changed its key
       const checkFieldNotChanged = (item: { id?: string; key?: string }) => {
@@ -529,6 +567,7 @@ export class FormService {
 
       if (params.schema?.header?.sections) {
         for (const section of params.schema.header.sections) {
+          checkSectionNotChanged(section);
           for (const f of section.fields || []) {
             checkFieldNotChanged(f);
           }
@@ -538,6 +577,7 @@ export class FormService {
         for (const tab of params.schema.tabs) {
           if (tab.type === 'form' && tab.sections) {
             for (const section of tab.sections) {
+              checkSectionNotChanged(section);
               for (const f of section.fields || []) {
                 checkFieldNotChanged(f);
               }

@@ -206,4 +206,79 @@ describe("Form Builder Field Key Locking and Behavior", () => {
     );
     expect(qtyField?.key).toBe("req_quantity");
   });
+
+  it("keeps section key unchanged when section title is renamed after creation", () => {
+    const onChange = vi.fn();
+    render(
+      <FormBuilder
+        initialSchema={createTestSchema()}
+        onChange={onChange}
+      />,
+    );
+
+    // Click on the Section header to select it
+    fireEvent.click(screen.getByText("Header Section"));
+
+    const titleInput = screen.getByLabelText("Section title") as HTMLInputElement;
+    expect(titleInput.value).toBe("Header Section");
+
+    // Rename the section title and blur
+    fireEvent.change(titleInput, { target: { value: "Requisition Details" } });
+    fireEvent.blur(titleInput);
+
+    const updatedSchema = onChange.mock.lastCall?.[0] as FormSchemaV1;
+    const headerSec = updatedSchema.header.sections[0];
+
+    // Title updated, but section key stayed immutable ("sec_header")
+    expect(headerSec.title).toBe("Requisition Details");
+    expect(headerSec.key).toBe("sec_header");
+  });
+
+  it("shows lock badge for section key in Advanced Settings when form is locked", () => {
+    render(
+      <FormBuilder
+        initialSchema={createTestSchema()}
+        isLocked={true}
+      />,
+    );
+
+    // Select the section
+    fireEvent.click(screen.getByText("Header Section"));
+
+    // Check Advanced Settings
+    expect(screen.getByText("Advanced / Developer Settings")).toBeTruthy();
+    expect(screen.getByText(/🔒 Key:/)).toBeTruthy();
+    expect(screen.getByText("sec_header")).toBeTruthy();
+    expect(screen.queryByLabelText("Section key")).toBeNull();
+  });
+
+  it("allows editing section key with live validation when form is unlocked", () => {
+    const onChange = vi.fn();
+    render(
+      <FormBuilder
+        initialSchema={createTestSchema()}
+        isLocked={false}
+        onChange={onChange}
+      />,
+    );
+
+    // Select the section
+    fireEvent.click(screen.getByText("Header Section"));
+
+    const keyInput = screen.getByLabelText("Section key") as HTMLInputElement;
+    expect(keyInput.value).toBe("sec_header");
+
+    // 1. Try editing to a reserved word
+    fireEvent.change(keyInput, { target: { value: "break" } });
+    expect(
+      screen.getByText('"break" is a reserved word and cannot be used as a field key.'),
+    ).toBeTruthy();
+
+    // 2. Edit to a valid unique key
+    fireEvent.change(keyInput, { target: { value: "requisition_header" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    const updatedSchema = onChange.mock.lastCall?.[0] as FormSchemaV1;
+    expect(updatedSchema.header.sections[0].key).toBe("requisition_header");
+  });
 });
