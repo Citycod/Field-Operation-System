@@ -1,10 +1,12 @@
 import { FormRepository, FormEntity, FormVersionEntity } from '../repositories/form-repository';
 import { MembershipRepository } from '../repositories/membership-repository';
+import { SubmissionRepository } from '../repositories/submission-repository';
 import {
   validateDraftSchema,
   validatePublishableSchema,
   workflowHasUserAssignees,
   FormSchemaV1,
+  generateUniqueFieldKey,
 } from '@field/form-engine';
 import { OrganizationMembership, OrganizationMemberRosterItem } from '@field/types';
 
@@ -24,7 +26,8 @@ export interface AuthorizeFormResult {
 export class FormService {
   constructor(
     private formRepository: FormRepository,
-    private membershipRepository: MembershipRepository
+    private membershipRepository: MembershipRepository,
+    private submissionRepository?: SubmissionRepository,
   ) {}
 
   private async checkMembership(userId: string, organizationId: string): Promise<OrganizationMembership> {
@@ -150,7 +153,23 @@ export class FormService {
     const form = await this.formRepository.getFormById(params.formId, params.organizationId);
     if (!form) return null;
     const draft = await this.formRepository.getDraftVersion(params.formId, params.organizationId);
-    return { form, draft };
+
+    let hasSubmissions = false;
+    if (this.submissionRepository) {
+      try {
+        const submissions = await this.submissionRepository.listSubmissions({
+          organizationId: params.organizationId,
+          formId: params.formId,
+          pageSize: 1,
+        });
+        hasSubmissions = (submissions?.totalCount ?? 0) > 0;
+      } catch {
+        hasSubmissions = false;
+      }
+    }
+    const isLocked = Boolean(form.current_published_version_id || hasSubmissions);
+
+    return { form, draft, isLocked, hasSubmissions };
   }
 
   async getPublishedForm(params: {
@@ -371,12 +390,166 @@ export class FormService {
     schema: FormSchemaV1;
     changeNote?: string;
   }) {
-    await this.authorizeFormAction({
+    const auth = await this.authorizeFormAction({
       userId: params.userId,
       organizationId: params.organizationId,
       formId: params.formId,
       action: 'manage_form',
     });
+
+    // 1. Missing-key fallback: deterministically generate keys for any field or detail column missing a key
+    const usedKeys = new Set<string>();
+    const collectExistingKeys = (item: { key?: string }) => {
+      if (item?.key && typeof item.key === 'string' && item.key.trim().length > 0) {
+        usedKeys.add(item.key.trim());
+      }
+    };
+
+    if (params.schema?.header?.sections) {
+      for (const section of params.schema.header.sections) {
+        for (const f of section.fields || []) {
+          collectExistingKeys(f);
+        }
+      }
+    }
+    if (params.schema?.tabs) {
+      for (const tab of params.schema.tabs) {
+        if (tab.type === 'form' && tab.sections) {
+          for (const section of tab.sections) {
+            for (const f of section.fields || []) {
+              collectExistingKeys(f);
+            }
+          }
+        } else if (tab.type === 'details' && tab.configuration?.columns) {
+          for (const col of tab.configuration.columns) {
+            collectExistingKeys(col);
+          }
+        }
+      }
+    }
+
+    const ensureFieldKey = (item: { id?: string; label?: string; key?: string }) => {
+      if (!item.key || typeof item.key !== 'string' || !item.key.trim()) {
+        const fallbackKey = generateUniqueFieldKey(item.label || 'field', usedKeys);
+        item.key = fallbackKey;
+        usedKeys.add(fallbackKey);
+        console.warn(
+          `[FormService] Field "${item.id || 'unknown'}" (label: "${item.label || ''}") was missing a key. Generated fallback key: "${fallbackKey}".`,
+        );
+      }
+    };
+
+    if (params.schema?.header?.sections) {
+      for (const section of params.schema.header.sections) {
+        for (const f of section.fields || []) {
+          ensureFieldKey(f);
+        }
+      }
+    }
+    if (params.schema?.tabs) {
+      for (const tab of params.schema.tabs) {
+        if (tab.type === 'form' && tab.sections) {
+          for (const section of tab.sections) {
+            for (const f of section.fields || []) {
+              ensureFieldKey(f);
+            }
+          }
+        } else if (tab.type === 'details' && tab.configuration?.columns) {
+          for (const col of tab.configuration.columns) {
+            ensureFieldKey(col);
+          }
+        }
+      }
+    }
+
+    // 2. Key locking check on locked forms (published or has submissions)
+    let hasSubmissions = false;
+    if (this.submissionRepository) {
+      try {
+        const submissions = await this.submissionRepository.listSubmissions({
+          organizationId: params.organizationId,
+          formId: params.formId,
+          pageSize: 1,
+        });
+        hasSubmissions = (submissions?.totalCount ?? 0) > 0;
+      } catch {
+        hasSubmissions = false;
+      }
+    }
+    const isLocked = Boolean(auth.form.current_published_version_id || hasSubmissions);
+
+    if (isLocked) {
+      // Gather existing field keys by field ID from current draft and/or published version
+      const existingFieldKeys = new Map<string, string>();
+      const recordFields = (schemaObj?: FormSchemaV1 | null) => {
+        if (!schemaObj) return;
+        if (schemaObj.header?.sections) {
+          for (const section of schemaObj.header.sections) {
+            for (const f of section.fields || []) {
+              if (f.id && f.key) existingFieldKeys.set(f.id, f.key);
+            }
+          }
+        }
+        if (schemaObj.tabs) {
+          for (const tab of schemaObj.tabs) {
+            if (tab.type === 'form' && tab.sections) {
+              for (const section of tab.sections) {
+                for (const f of section.fields || []) {
+                  if (f.id && f.key) existingFieldKeys.set(f.id, f.key);
+                }
+              }
+            } else if (tab.type === 'details' && tab.configuration?.columns) {
+              for (const col of tab.configuration.columns) {
+                if (col.id && col.key) existingFieldKeys.set(col.id, col.key);
+              }
+            }
+          }
+        }
+      };
+
+      const existingDraft = await this.formRepository.getDraftVersion(params.formId, params.organizationId);
+      recordFields(existingDraft?.schema_jsonb as FormSchemaV1 | undefined);
+
+      if (auth.form.current_published_version_id) {
+        const publishedVersion = await this.formRepository.getPublishedVersion(params.formId, params.organizationId);
+        recordFields(publishedVersion?.schema_jsonb as FormSchemaV1 | undefined);
+      }
+
+      // Verify that no existing field has changed its key
+      const checkFieldNotChanged = (item: { id?: string; key?: string }) => {
+        if (item.id && existingFieldKeys.has(item.id)) {
+          const oldKey = existingFieldKeys.get(item.id)!;
+          if (oldKey !== item.key) {
+            throw new Error(
+              `Cannot modify field key "${oldKey}" to "${item.key}" because the form is locked (already published or has submissions).`,
+            );
+          }
+        }
+      };
+
+      if (params.schema?.header?.sections) {
+        for (const section of params.schema.header.sections) {
+          for (const f of section.fields || []) {
+            checkFieldNotChanged(f);
+          }
+        }
+      }
+      if (params.schema?.tabs) {
+        for (const tab of params.schema.tabs) {
+          if (tab.type === 'form' && tab.sections) {
+            for (const section of tab.sections) {
+              for (const f of section.fields || []) {
+                checkFieldNotChanged(f);
+              }
+            }
+          } else if (tab.type === 'details' && tab.configuration?.columns) {
+            for (const col of tab.configuration.columns) {
+              checkFieldNotChanged(col);
+            }
+          }
+        }
+      }
+    }
 
     const draftValidation = validateDraftSchema(params.schema);
     if (!draftValidation.valid) {

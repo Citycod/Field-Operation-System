@@ -25,6 +25,7 @@ export async function authenticatedFormService() {
     service: new FormService(
       new SupabaseFormRepository(repositoryClient),
       new SupabaseMembershipRepository(repositoryClient),
+      new SupabaseSubmissionRepository(repositoryClient),
     ),
   };
 }
@@ -51,7 +52,8 @@ export function publicFormService() {
   const repositoryClient = createAdminClient();
   const formRepo = new SupabaseFormRepository(repositoryClient);
   const membershipRepo = new SupabaseMembershipRepository(repositoryClient);
-  return new FormService(formRepo, membershipRepo);
+  const submissionRepo = new SupabaseSubmissionRepository(repositoryClient);
+  return new FormService(formRepo, membershipRepo, submissionRepo);
 }
 
 export function publicSubmissionService() {

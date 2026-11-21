@@ -1218,4 +1218,287 @@ describe('FormService', () => {
     });
   });
 
+  describe('Field Key Locking and Fallback Generation', () => {
+    it('deterministically generates field keys and logs a warning when saved with missing keys', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const created = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'fallback_key_form',
+        title: 'Fallback Key Form',
+      });
+
+      const schemaWithMissingKeys = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      schemaWithMissingKeys.header.sections = [
+        {
+          id: 'sec_header_1',
+          key: 'sec_header_1',
+          title: 'Main Section',
+          order: 0,
+          fields: [
+            {
+              id: 'f_est_1',
+              key: '',
+              label: 'Estimated Cost',
+              type: 'currency',
+              order: 0,
+            },
+            {
+              id: 'f_est_2',
+              key: '',
+              label: 'Estimated cost',
+              type: 'currency',
+              order: 1,
+            },
+            {
+              id: 'f_digit',
+              key: '',
+              label: '2025 Budget',
+              type: 'number',
+              order: 2,
+            },
+            {
+              id: 'f_reserved',
+              key: '',
+              label: 'delete',
+              type: 'text',
+              order: 3,
+            },
+          ],
+        },
+      ];
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+        schema: schemaWithMissingKeys,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[FormService] Field "f_est_1" (label: "Estimated Cost") was missing a key. Generated fallback key: "estimated_cost".'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[FormService] Field "f_est_2" (label: "Estimated cost") was missing a key. Generated fallback key: "estimated_cost_2".'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[FormService] Field "f_digit" (label: "2025 Budget") was missing a key. Generated fallback key: "field_2025_budget".'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[FormService] Field "f_reserved" (label: "delete") was missing a key. Generated fallback key: "field_delete".'),
+      );
+
+      const reloaded = await formService.getEditableDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+      });
+
+      const fields = reloaded?.draft?.schema_jsonb.header.sections[0].fields;
+      expect(fields?.[0].key).toBe('estimated_cost');
+      expect(fields?.[1].key).toBe('estimated_cost_2');
+      expect(fields?.[2].key).toBe('field_2025_budget');
+      expect(fields?.[3].key).toBe('field_delete');
+      warnSpy.mockRestore();
+    });
+
+    it('allows key edit on draft with zero submissions when unpublished', async () => {
+      const created = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'unlocked_draft_form',
+        title: 'Unlocked Draft Form',
+      });
+
+      const initialSchema = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      initialSchema.header.sections = [
+        {
+          id: 'sec_unit_1',
+          key: 'sec_unit_1',
+          title: 'Unit Section',
+          order: 0,
+          fields: [
+            {
+              id: 'f_unit',
+              key: 'old_unit_key',
+              label: 'Unit Price',
+              type: 'currency',
+              order: 0,
+            },
+          ],
+        },
+      ];
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+        schema: initialSchema,
+      });
+
+      // Update key on unlocked draft
+      const updatedSchema = structuredClone(initialSchema);
+      updatedSchema.header.sections[0].fields[0].key = 'new_unit_key';
+
+      await expect(
+        formService.saveDraft({
+          userId: userA,
+          organizationId: orgA,
+          formId: created.form.id,
+          versionId: created.version.id,
+          schema: updatedSchema,
+        }),
+      ).resolves.toBeDefined();
+
+      const reloaded = await formService.getEditableDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+      });
+      expect(reloaded?.isLocked).toBe(false);
+      expect(reloaded?.hasSubmissions).toBe(false);
+      expect(reloaded?.draft?.schema_jsonb.header.sections[0].fields[0].key).toBe('new_unit_key');
+    });
+
+    it('rejects key edit with clear error once the form is published', async () => {
+      const created = await formService.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'published_form_locking',
+        title: 'Published Form Locking',
+      });
+
+      const schema = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      schema.header.sections = [
+        {
+          id: 'sec_code_1',
+          key: 'sec_code_1',
+          title: 'Code Section',
+          order: 0,
+          fields: [
+            {
+              id: 'fld_code',
+              key: 'item_code',
+              label: 'Item Code',
+              type: 'text',
+              order: 0,
+            },
+          ],
+        },
+      ];
+
+      await formService.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+        schema,
+      });
+
+      await formService.publishForm({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+      });
+
+      const reloaded = await formService.getEditableDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+      });
+      expect(reloaded?.isLocked).toBe(true);
+
+      // Attempt to modify the key on the published form
+      const illegalSchema = structuredClone(schema);
+      illegalSchema.header.sections[0].fields[0].key = 'product_sku';
+
+      await expect(
+        formService.saveDraft({
+          userId: userA,
+          organizationId: orgA,
+          formId: created.form.id,
+          versionId: created.version.id,
+          schema: illegalSchema,
+        }),
+      ).rejects.toThrow(
+        'Cannot modify field key "item_code" to "product_sku" because the form is locked (already published or has submissions).',
+      );
+    });
+
+    it('rejects key edit with clear error when form has submissions', async () => {
+      const mockSubRepo = {
+        listSubmissions: vi.fn().mockResolvedValue({
+          submissions: [],
+          totalCount: 3,
+          page: 1,
+          pageSize: 1,
+          totalPages: 1,
+        }),
+      } as any;
+
+      const serviceWithSubmissions = new FormService(formRepo, membershipRepo, mockSubRepo);
+
+      const created = await serviceWithSubmissions.createForm({
+        userId: userA,
+        organizationId: orgA,
+        key: 'submissions_locking_form',
+        title: 'Submissions Locking Form',
+      });
+
+      const schema = structuredClone(MINIMAL_VALID_SCHEMA) as FormSchemaV1;
+      schema.header.sections = [
+        {
+          id: 'sec_serial_1',
+          key: 'sec_serial_1',
+          title: 'Serial Section',
+          order: 0,
+          fields: [
+            {
+              id: 'fld_serial',
+              key: 'serial_number',
+              label: 'Serial Number',
+              type: 'text',
+              order: 0,
+            },
+          ],
+        },
+      ];
+
+      await serviceWithSubmissions.saveDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+        versionId: created.version.id,
+        schema,
+      });
+
+      const reloaded = await serviceWithSubmissions.getEditableDraft({
+        userId: userA,
+        organizationId: orgA,
+        formId: created.form.id,
+      });
+      expect(reloaded?.isLocked).toBe(true);
+      expect(reloaded?.hasSubmissions).toBe(true);
+
+      // Attempt to modify the key on a form with submissions
+      const illegalSchema = structuredClone(schema);
+      illegalSchema.header.sections[0].fields[0].key = 'imei_number';
+
+      await expect(
+        serviceWithSubmissions.saveDraft({
+          userId: userA,
+          organizationId: orgA,
+          formId: created.form.id,
+          versionId: created.version.id,
+          schema: illegalSchema,
+        }),
+      ).rejects.toThrow(
+        'Cannot modify field key "serial_number" to "imei_number" because the form is locked (already published or has submissions).',
+      );
+    });
+  });
+
 });

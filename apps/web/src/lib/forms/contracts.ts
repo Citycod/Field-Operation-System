@@ -10,6 +10,8 @@ export interface FormLibraryResponse {
 export interface FormDraftResponse {
   form: FormEntity;
   draft: FormVersionEntity | null;
+  isLocked?: boolean;
+  hasSubmissions?: boolean;
 }
 export interface ApiErrorResponse {
   error: string;

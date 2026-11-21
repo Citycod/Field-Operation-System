@@ -532,6 +532,12 @@ export default function ProductionFormBuilderPage() {
             latestPublished?.schema_jsonb?.settings?.publicAccess?.customSlug
           }
           onTogglePublicAccess={handleTogglePublicAccess}
+          isLocked={Boolean(
+            (data as any).isLocked ||
+            data.form.current_published_version_id ||
+            versions.some((v) => v.status === "published")
+          )}
+          hasSubmissions={Boolean((data as any).hasSubmissions)}
         />
       )}
 

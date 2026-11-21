@@ -174,11 +174,13 @@ describe("visual builder", () => {
     fireEvent.change(screen.getByLabelText("Field label"), {
       target: { value: "Contact Email" },
     });
+    fireEvent.blur(screen.getByLabelText("Field label"));
     // Add a second field immediately while the first field is still selected
     fireEvent.click(screen.getByRole("button", { name: "Add Text field" }));
     fireEvent.change(screen.getByLabelText("Field label"), {
       target: { value: "Phone Number" },
     });
+    fireEvent.blur(screen.getByLabelText("Field label"));
     const schema = change.mock.lastCall?.[0] as FormSchemaV1;
     const generalTab = schema.tabs[0] as Extract<FormTabUnion, { type: "form" }>;
     expect(generalTab.sections[0].fields).toHaveLength(2);

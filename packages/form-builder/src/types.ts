@@ -78,6 +78,8 @@ export interface FormBuilderProps {
   isPublic?: boolean;
   publicSlug?: string | null;
   onTogglePublicAccess?: (enabled: boolean) => void | Promise<void>;
+  isLocked?: boolean;
+  hasSubmissions?: boolean;
 }
 
 export interface BuilderValidation extends ValidationResult {
