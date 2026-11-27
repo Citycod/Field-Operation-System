@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Field Workforce & Operations Management Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy: #020a3c;
+            --navy2: #051a6b;
+            --blue: #1d5bf0;
+            --pg: #f4f8ff;
+            --card: #fff;
+            --tx: #0a1640;
+            --mu: #4a5a85;
+            --ln: #d3def5;
+            --sk1: #e6f3ff;
+            --sk2: #cfe1ff;
+            --f: 'Montserrat', 'Segoe UI', system-ui, sans-serif;
+            box-sizing: border-box;
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: env(safe-area-inset-bottom, 0px)
+        }
+
+        @media (prefers-color-scheme:dark) {
+            :root:not([data-theme="light"]) {
+                --pg: #050d2b;
+                --card: #0b1a4d;
+                --tx: #e8eeff;
+                --mu: #9fb0e0;
+                --ln: #1c2f78;
+                --sk1: #0a1a52;
+                --sk2: #0b2370
+            }
+        }
+
+        :root[data-theme="dark"] {
+            --pg: #050d2b;
+            --card: #0b1a4d;
+            --tx: #e8eeff;
+            --mu: #9fb0e0;
+            --ln: #1c2f78;
+            --sk1: #0a1a52;
+            --sk2: #0b2370
+        }
+
+        html {
+            scroll-behavior: smooth;
+            scroll-padding-top: 90px
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            background: var(--pg);
+            color: var(--tx);
+            font: 500 16px/1.7 var(--f);
+            -webkit-font-smoothing: antialiased;
+            overflow-x: clip
+        }
+
+        h1,
+        h2,
+        h3 {
+            margin: 0;
+            line-height: 1.15;
+            font-weight: 600;
+            letter-spacing: -.01em
+        }
+
+        h2 {
+            font-size: clamp(1.9rem, 4vw, 3rem)
+        }
+
+        p {
+            margin: 0
+        }
+
+        a {
+            color: inherit
+        }
+
+        .w {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px
+        }
+
+        section {
+            padding: 100px 0;
+            position: relative
+        }
+
+        [data-sc] {
+            background-size: cover;
+            background-position: center
+        }
+
+        .top {
+            background: #01072b;
+            color: #cfd8ff;
+            font-size: 13px;
+            padding: 8px 0
+        }
+
+        .top .w {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap
+        }
+
+        .top a {
+            text-decoration: none
+        }
+
+        .hd {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            height: 84px;
+            margin-bottom: -84px;
+            transition: background .3s, backdrop-filter .3s
+        }
+
+        .hd.s {
+            background: rgba(2, 10, 60, .92);
+            backdrop-filter: blur(10px)
+        }
+
+        .hd .w {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 84px
+        }
+
+        .lg {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.25rem;
+            line-height: 1.1
+        }
+
+        .lg small {
+            display: block;
+            font-size: .62rem;
+            font-weight: 500;
+            opacity: .8;
+            letter-spacing: .02em
+        }
+
+        .hr {
+            display: flex;
+            align-items: center;
+            gap: 22px
+        }
+
+        .hr nav {
+            display: flex;
+            gap: 26px
+        }
+
+        .hr nav a {
+            color: #fff;
+            text-decoration: none;
+            font-size: .9rem;
+            opacity: .85
+        }
+
+        .hr nav a:hover {
+            opacity: 1
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            padding: 6px 6px 6px 22px;
+            border-radius: 12px;
+            background: var(--blue);
+            color: #fff;
+            font: 600 .85rem var(--f);
+            text-decoration: none;
+            border: 0;
+            cursor: pointer;
+            transition: transform .2s, box-shadow .2s
+        }
+
+        .btn i {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            background: #fff;
+            color: var(--blue);
+            font-style: normal;
+            transition: transform .25s
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px -10px var(--blue)
+        }
+
+        .btn:hover i {
+            transform: rotate(45deg)
+        }
+
+        .btn.d {
+            background: var(--navy);
+            border: 1px solid rgba(255, 255, 255, .25)
+        }
+
+        .btn.o {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, .5)
+        }
+
+        .btn:focus-visible,
+        a:focus-visible,
+        button:focus-visible {
+            outline: 3px solid #7fa4ff;
+            outline-offset: 3px
+        }
+
+        .ham {
+            width: 44px;
+            height: 44px;
+            border: 0;
+            background: none;
+            color: #fff;
+            cursor: pointer;
+            display: grid;
+            place-content: center;
+            gap: 6px
+        }
+
+        .ham span {
+            display: block;
+            width: 26px;
+            height: 2px;
+            background: #fff
+        }
+
+        .mn {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: min(340px, 86vw);
+            background: var(--navy);
+            z-index: 40;
+            padding: 90px 32px;
+            transform: translateX(100%);
+            transition: transform .4s;
+            display: flex;
+            flex-direction: column;
+            gap: 18px
+        }
+
+        .mn.o {
+            transform: none
+        }
+
+        .mn a {
+            color: #fff;
+            text-decoration: none;
+            font-size: 1.2rem;
+            font-weight: 600
+        }
+
+        .mn-x {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 44px;
+            height: 44px;
+            border: 1px solid rgba(255, 255, 255, .2);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, .08);
+            color: #fff;
+            font-size: 24px;
+            line-height: 1;
+            display: grid;
+            place-items: center;
+            cursor: pointer;
+            transition: background .2s, border-color .2s
+        }
+
+        .mn-x:hover {
+            background: rgba(255, 255, 255, .18);
+            border-color: rgba(255, 255, 255, .4)
+        }
+
+        @media(max-width:860px) {
+
+            .hr nav,
+            .hr .btn {
+                display: none
+            }
+        }
+
+        .bdg {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--navy);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 7px 12px;
+            border-radius: 7px;
+            margin-bottom: 18px;
+            border: 1px solid rgba(255, 255, 255, .15)
+        }
+
+        .bdg:after {
+            content: "";
+            width: 16px;
+            height: 7px;
+            border-radius: 4px;
+            background: radial-gradient(circle at 12px 3.5px, #fff 3px, transparent 3.5px), linear-gradient(#fff, #fff) 0 3px/10px 1px no-repeat
+        }
+
+        .hero {
+            min-height: 100vh;
+            min-height: 100svh;
+            display: flex;
+            align-items: flex-end;
+            padding: 140px 0 90px;
+            color: #fff;
+            overflow: hidden;
+            background: var(--navy)
+        }
+
+        .sl {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transform: scale(1.08);
+            transition: opacity 1.2s
+        }
+
+        .sl.on {
+            opacity: 1;
+            animation: kb 8s linear forwards
+        }
+
+        @keyframes kb {
+            to {
+                transform: scale(1)
+            }
+        }
+
+        .hero:before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            background: linear-gradient(180deg, rgba(2, 10, 60, .6), rgba(2, 10, 60, .2) 40%, rgba(2, 10, 60, .9))
+        }
+
+        #c1 {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            opacity: .55
+        }
+
+        .hero .w {
+            position: relative;
+            z-index: 2;
+            width: 100%
+        }
+
+        .hc {
+            max-width: 660px;
+            margin-left: 0;
+            text-align: left
+        }
+
+        .hero h1 {
+            font-size: clamp(2.2rem, 5vw, 3.7rem);
+            font-weight: 600
+        }
+
+        .hero p {
+            margin: 24px 0 30px;
+            padding-left: 18px;
+            border-left: 3px solid var(--blue);
+            color: #dbe4ff;
+            max-width: 56ch
+        }
+
+        .hb {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap
+        }
+
+        .rise>* {
+            opacity: 0;
+            transform: translateY(26px);
+            animation: ri .9s cubic-bezier(.2, .7, .2, 1) forwards
+        }
+
+        .rise>*:nth-child(2) {
+            animation-delay: .15s
+        }
+
+        .rise>*:nth-child(3) {
+            animation-delay: .3s
+        }
+
+        .rise>*:nth-child(4) {
+            animation-delay: .45s
+        }
+
+        @keyframes ri {
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+
+        @media(max-width:860px) {
+            .hc {
+                margin-left: 0
+            }
+        }
+
+        .ab {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 72px;
+            align-items: center
+        }
+
+        .ai {
+            position: relative;
+            aspect-ratio: 1/1.05
+        }
+
+        .ai .m {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 78%;
+            height: 92%;
+            border-radius: 22px
+        }
+
+        .ai .sm {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 44%;
+            aspect-ratio: 1.1;
+            border-radius: 16px;
+            border: 6px solid var(--pg)
+        }
+
+        .rb {
+            position: absolute;
+            left: 4%;
+            top: 12%;
+            width: 128px;
+            height: 128px;
+            border-radius: 50%;
+            background: var(--navy);
+            display: grid;
+            place-items: center;
+            z-index: 2;
+            box-shadow: 0 14px 34px -10px rgba(2, 10, 60, .6)
+        }
+
+        .rb svg {
+            position: absolute;
+            inset: 0;
+            animation: sp 18s linear infinite
+        }
+
+        @keyframes sp {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        .rb b {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: var(--blue);
+            color: #fff;
+            display: grid;
+            place-items: center;
+            font-size: 1.3rem
+        }
+
+        .ab .bdg {
+            background: var(--navy)
+        }
+
+        .ab p {
+            color: var(--mu);
+            margin: 16px 0
+        }
+
+        @media(max-width:900px) {
+            .ab {
+                grid-template-columns: 1fr;
+                gap: 40px
+            }
+
+            .ai {
+                max-width: 520px
+            }
+        }
+
+        .sky {
+            background: linear-gradient(135deg, var(--sk1), var(--sk2))
+        }
+
+        .ctr {
+            text-align: center
+        }
+
+        .ctr h2 {
+            max-width: 20ch;
+            margin: 0 auto
+        }
+
+        .fg {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 50px 40px;
+            margin: 64px 0 54px
+        }
+
+        .fi {
+            text-align: center;
+            position: relative;
+            padding-top: 44px
+        }
+
+        .fi:before {
+            content: "";
+            position: absolute;
+            left: -20px;
+            right: -20px;
+            top: 11px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--ln) 15%, var(--ln) 85%, transparent)
+        }
+
+        .fi:after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 24px;
+            height: 24px;
+            margin-left: -12px;
+            border-radius: 50%;
+            background: var(--pg);
+            border: 6px solid var(--blue)
+        }
+
+        .fi h3 {
+            font-size: 1.1rem;
+            margin-bottom: 8px
+        }
+
+        .fi p {
+            color: var(--mu);
+            font-size: .95rem;
+            max-width: 30ch;
+            margin: 0 auto
+        }
+
+        @media(max-width:800px) {
+            .fg {
+                grid-template-columns: 1fr
+            }
+        }
+
+        .cp {
+            background: var(--navy);
+            color: #fff;
+            overflow-x: clip;
+            padding: 0
+        }
+
+        .cp-track {
+            position: relative;
+            min-height: 340vh;
+            padding: 24px 0
+        }
+
+        .cp-sticky {
+            position: sticky;
+            top: 84px;
+            min-height: calc(100vh - 84px);
+            min-height: calc(100svh - 84px);
+            display: flex;
+            align-items: center;
+            padding: 16px 0;
+            z-index: 2
+        }
+
+        .cp:before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: var(--navy);
+            opacity: .9;
+            z-index: 1
+        }
+
+        .cp .bg {
+            position: absolute;
+            inset: 0;
+            opacity: .35;
+            filter: blur(2px)
+        }
+
+        .cp .w {
+            position: relative;
+            z-index: 2;
+            width: 100%
+        }
+
+        .cp-head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 20px;
+            flex-wrap: wrap
+        }
+
+        .cp-head .bdg {
+            margin-bottom: 10px
+        }
+
+        .cp-head h2 {
+            font-size: clamp(1.45rem, 2.6vw, 2.05rem);
+            line-height: 1.15
+        }
+
+        .cp-meta {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            color: #9db8ff;
+            font-size: .85rem;
+            font-weight: 600
+        }
+
+        .cp-prog {
+            width: 140px;
+            height: 5px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .14);
+            overflow: hidden
+        }
+
+        .cp-prog i {
+            display: block;
+            height: 100%;
+            width: 14%;
+            background: linear-gradient(90deg, #4f86ff, #8ab4ff);
+            border-radius: inherit;
+            transition: width .12s linear
+        }
+
+        .cg {
+            display: grid;
+            grid-template-columns: .9fr 1.25fr;
+            gap: 32px;
+            margin-top: 22px;
+            align-items: center
+        }
+
+        .tl {
+            display: flex;
+            flex-direction: column;
+            gap: 6px
+        }
+
+        .tl button {
+            position: relative;
+            overflow: hidden;
+            text-align: left;
+            font: 600 .88rem var(--f);
+            color: #c7d3ff;
+            background: rgba(255, 255, 255, .05);
+            border: 1px solid rgba(255, 255, 255, .12);
+            padding: 10px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background .25s, border-color .25s, box-shadow .25s, color .25s;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            will-change: transform, opacity
+        }
+
+        .tl button:after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #6c9bff, #38bdf8);
+            transform-origin: left;
+            transform: scaleX(var(--fill, 0));
+            opacity: .9
+        }
+
+        .tl button:hover {
+            background: rgba(255, 255, 255, .1)
+        }
+
+        .tl button[aria-selected=true] {
+            background: linear-gradient(135deg, rgba(29, 91, 240, .92), rgba(56, 189, 248, .65));
+            color: #fff;
+            border-color: rgba(127, 164, 255, .85);
+            box-shadow: 0 14px 32px -12px rgba(29, 91, 240, .9)
+        }
+
+        .pn {
+            border-radius: 20px;
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+            height: clamp(290px, 46vh, 380px);
+            display: flex;
+            align-items: flex-end;
+            border: 1px solid rgba(255, 255, 255, .2);
+            background: radial-gradient(circle at 60% 30%, rgba(29, 91, 240, .28), rgba(2, 10, 60, .96) 72%);
+            transition: background-image .55s ease, box-shadow .35s ease;
+            box-shadow: 0 28px 60px -22px rgba(1, 7, 43, .9), 0 0 0 1px rgba(127, 164, 255, .08) inset;
+            will-change: transform
+        }
+
+        .pn-aura {
+            position: absolute;
+            width: 340px;
+            height: 340px;
+            border-radius: 50%;
+            top: -90px;
+            right: -60px;
+            background: radial-gradient(circle, rgba(79, 134, 255, .55), rgba(56, 189, 248, .18) 45%, transparent 72%);
+            filter: blur(22px);
+            z-index: 1;
+            pointer-events: none;
+            will-change: transform, opacity
+        }
+
+        #c3 {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none
+        }
+
+        .pn:before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            background: linear-gradient(180deg, rgba(2, 10, 60, .06) 15%, rgba(2, 10, 60, .94) 84%)
+        }
+
+        .pn div.t {
+            position: relative;
+            z-index: 3;
+            width: 100%;
+            padding: 24px 26px;
+            transition: opacity .32s cubic-bezier(.2, .7, .2, 1), transform .32s cubic-bezier(.2, .7, .2, 1);
+            will-change: opacity, transform
+        }
+
+        .pn div.t.x {
+            opacity: 0;
+            transform: translateY(18px) scale(.97)
+        }
+
+        .pn-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: #8ab4ff;
+            margin-bottom: 8px
+        }
+
+        .pn-step-bar {
+            width: 84px;
+            height: 3px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .18);
+            overflow: hidden;
+            margin-top: 14px
+        }
+
+        .pn-step-bar i {
+            display: block;
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #4f86ff, #34d399);
+            transform-origin: left;
+            transform: scaleX(.15)
+        }
+
+        .pn h3 {
+            font-size: 1.25rem;
+            line-height: 1.25
+        }
+
+        .pn p {
+            margin-top: 8px;
+            font-size: .92rem;
+            line-height: 1.5;
+            color: #d7e0ff;
+            max-width: 50ch
+        }
+
+        @media(max-width:860px) {
+            .cp-track {
+                min-height: auto;
+                padding: 80px 0
+            }
+
+            .cp-sticky {
+                position: static;
+                min-height: auto;
+                display: block
+            }
+
+            .cg {
+                grid-template-columns: 1fr
+            }
+        }
+
+        .hw {
+            background: linear-gradient(160deg, var(--navy), var(--navy2));
+            color: #fff;
+            overflow: hidden
+        }
+
+        #c2 {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%
+        }
+
+        .hw .w {
+            position: relative;
+            z-index: 2
+        }
+
+        .st {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 22px;
+            margin-top: 58px
+        }
+
+        .sc {
+            padding: 32px 26px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, .07);
+            border: 1px solid rgba(255, 255, 255, .16);
+            backdrop-filter: blur(8px)
+        }
+
+        .sc b {
+            display: grid;
+            place-items: center;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: var(--blue);
+            margin-bottom: 22px;
+            font-size: 1.1rem
+        }
+
+        .sc p {
+            color: #c7d3ff;
+            margin-top: 10px;
+            font-size: .95rem
+        }
+
+        @media(max-width:900px) {
+            .st {
+                grid-template-columns: 1fr 1fr
+            }
+        }
+
+        @media(max-width:520px) {
+            .st {
+                grid-template-columns: 1fr
+            }
+        }
+
+        .ch {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 38px 0 22px
+        }
+
+        .ch span {
+            padding: 11px 22px;
+            border-radius: 10px;
+            background: var(--card);
+            border: 1px solid var(--ln);
+            font-weight: 600;
+            font-size: .92rem;
+            transition: all .2s
+        }
+
+        .ch span:hover {
+            background: var(--blue);
+            color: #fff;
+            border-color: var(--blue);
+            transform: translateY(-3px)
+        }
+
+        .ctr .ld {
+            color: var(--mu);
+            max-width: 60ch;
+            margin: 0 auto
+        }
+
+        .sd {
+            position: relative;
+            margin-top: 70px;
+            display: grid;
+            grid-template-columns: 48px 1fr 48px;
+            gap: 16px
+        }
+
+        .sd>button {
+            border: 0;
+            background: var(--blue);
+            color: #fff;
+            border-radius: 14px;
+            font: 600 .8rem var(--f);
+            writing-mode: vertical-rl;
+            cursor: pointer;
+            padding: 18px 0;
+            transition: background .2s
+        }
+
+        .sd>button:first-child {
+            transform: rotate(180deg)
+        }
+
+        .sd>button:hover {
+            background: #0f43c2
+        }
+
+        .sv {
+            position: relative;
+            min-height: 440px;
+            border-radius: 24px;
+            overflow: hidden
+        }
+
+        .sv>article {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: flex-end;
+            padding: 42px;
+            color: #fff;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity .6s, visibility .6s;
+            text-align: left
+        }
+
+        .sv>article.on {
+            opacity: 1;
+            visibility: visible
+        }
+
+        .sv>article:before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(2, 10, 60, 0) 20%, rgba(2, 10, 60, .92))
+        }
+
+        .sv>article>div {
+            position: relative;
+            max-width: 520px
+        }
+
+        .sv h3 {
+            font-size: clamp(1.5rem, 3vw, 2.2rem)
+        }
+
+        .sv p {
+            margin: 12px 0 18px;
+            color: #d7e0ff
+        }
+
+        .sv a {
+            font-size: .8rem;
+            font-weight: 700;
+            letter-spacing: .04em;
+            text-decoration: none
+        }
+
+        @media(max-width:600px) {
+            .sd {
+                grid-template-columns: 1fr
+            }
+
+            .sd>button {
+                writing-mode: horizontal-tb;
+                padding: 12px
+            }
+
+            .sd>button:first-child {
+                transform: none;
+                order: 2
+            }
+
+            .sd>button:last-child {
+                order: 3
+            }
+
+            .sv {
+                order: 1
+            }
+        }
+
+        .fin {
+            background: linear-gradient(160deg, var(--navy2), var(--navy));
+            color: #fff;
+            text-align: center;
+            overflow: hidden
+        }
+
+        .fin h2 {
+            max-width: 18ch;
+            margin: 0 auto 22px
+        }
+
+        .fin p {
+            max-width: 48ch;
+            margin: 0 auto 10px;
+            color: #c7d3ff
+        }
+
+        .fin .hb {
+            justify-content: center;
+            margin-top: 34px
+        }
+
+        .fin:before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: -30%;
+            width: 800px;
+            height: 800px;
+            margin-left: -400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(29, 91, 240, .5), transparent 65%)
+        }
+
+        .fin .w {
+            position: relative
+        }
+
+        footer {
+            background: #01072b;
+            color: #a9b8ec;
+            padding: 64px 0 36px;
+            font-size: .92rem
+        }
+
+        .fgd {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr 1fr;
+            gap: 48px
+        }
+
+        footer h4 {
+            color: #fff;
+            margin: 0 0 16px;
+            font-size: 1.05rem
+        }
+
+        footer ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 9px
+        }
+
+        footer a {
+            text-decoration: none
+        }
+
+        footer a:hover {
+            color: #fff
+        }
+
+        footer .lg {
+            margin-bottom: 18px
+        }
+
+        @media(max-width:800px) {
+            .fgd {
+                grid-template-columns: 1fr
+            }
+        }
+
+        .up {
+            position: fixed;
+            right: 18px;
+            bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: var(--blue);
+            color: #fff;
+            display: grid;
+            place-items: center;
+            text-decoration: none;
+            z-index: 25;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .3s
+        }
+
+        .up.v {
+            opacity: 1;
+            pointer-events: auto
+        }
+
+        .rv {
+            opacity: 0;
+            transform: translateY(34px);
+            transition: opacity .8s cubic-bezier(.2, .7, .2, 1), transform .8s cubic-bezier(.2, .7, .2, 1);
+            transition-delay: var(--d, 0s)
+        }
+
+        .rv.l {
+            transform: translateX(-44px)
+        }
+
+        .rv.r {
+            transform: translateX(44px)
+        }
+
+        .rv.in {
+            opacity: 1;
+            transform: none
+        }
+
+        @media(prefers-reduced-motion:reduce) {
+
+            .rv,
+            .rise>* {
+                opacity: 1;
+                transform: none;
+                animation: none;
+                transition: none
+            }
+
+            .sl.on,
+            .rb svg {
+                animation: none
+            }
+
+            html {
+                scroll-behavior: auto
+            }
+        }
+    </style>
+</head>
+
+<body id="top">
+    <div class="top">
+        <div class="w"><span>Centralized workforce &amp; operations management</span><span><a href="#contact">Contact
+                    Us</a> &nbsp;·&nbsp; English</span></div>
+    </div>
+    <header class="hd" id="hd">
+        <div class="w">
+            <a class="lg" href="#top"><svg width="38" height="38" viewBox="0 0 40 40" fill="none" stroke="#4f86ff"
+                    stroke-width="3">
+                    <circle cx="20" cy="20" r="16" />
+                    <circle cx="20" cy="20" r="8" stroke="#fff" />
+                    <path d="M20 4a16 16 0 0116 16" stroke="#fff" />
+                </svg><span>FieldOps<small>Management Platform</small></span></a>
+            <div class="hr">
+                <nav><a href="#about">Platform</a><a href="#capabilities">Capabilities</a><a href="#how">How it
+                        works</a><a href="#teams">Departments</a></nav>
+                <a class="btn d" href="#contact">Get Started <i>↗</i></a>
+                <button class="ham" id="ham" aria-label="Open menu" aria-expanded="false"
+                    aria-controls="mn"><span></span><span></span><span></span></button>
+            </div>
+        </div>
+    </header>
+    <aside class="mn" id="mn" aria-label="Navigation menu"><button class="mn-x" id="mnx" type="button"
+            aria-label="Close menu"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round">
+                <path d="M5 5l10 10M15 5L5 15" />
+            </svg></button><a href="#about">Platform</a><a href="#capabilities">Capabilities</a><a href="#how">How it
+            works</a><a href="#teams">Departments</a><a href="#contact">Get Started</a></aside>
+
+    <section class="hero">
+        <div class="sl on" data-sc="1"></div>
+        <div class="sl" data-sc="2"></div>
+        <div class="sl" data-sc="0"></div>
+        <canvas id="c1" aria-hidden="true"></canvas>
+        <div class="w">
+            <div class="hc rise">
+                <span class="bdg">Workforce, Operations, Approvals</span>
+                <h1>Manage Your Workforce. Streamline Operations. Get More Done.</h1>
+                <p>A centralized platform designed to help organizations manage field workforce activities, streamline
+                    operational processes, automate approvals, and improve visibility across their business operations.
+                </p>
+                <div class="hb"><a class="btn" href="#contact">Get Started <i>↗</i></a><a class="btn o"
+                        href="#about">Explore the Platform <i>↓</i></a></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="about">
+        <div class="w ab">
+            <div class="ai rv l">
+                <div class="m" data-sc="3"></div>
+                <div class="sm" data-sc="4"></div>
+                <div class="rb"><svg viewBox="0 0 200 200" aria-hidden="true">
+                        <defs>
+                            <path id="cp" d="M100,100 m-80,0 a80,80 0 1,1 160,0 a80,80 0 1,1 -160,0" />
+                        </defs><text fill="#fff" font-size="16" font-weight="600" letter-spacing="2.4"
+                            font-family="Montserrat,sans-serif">
+                            <textPath href="#cp">One platform • Better operations • Take control • </textPath>
+                        </text>
+                    </svg><b>↗</b></div>
+            </div>
+            <div class="rv r"><span class="bdg">About the Platform</span>
+                <h2>One Platform. Better Workforce and Operations Management.</h2>
+                <p>The Field Workforce &amp; Operations Management Platform is an integrated business management
+                    solution designed to simplify how organizations coordinate their workforce and manage day-to-day
+                    operations.</p>
+                <p>From managing operational requests and approval processes to organizing information and monitoring
+                    activities, the platform provides a centralized environment where teams can work more efficiently,
+                    collaborate effectively, and maintain better control over business processes.</p>
+                <p>It helps reduce manual administrative work, improve accountability, and create more structured
+                    operational workflows.</p>
+                <a class="btn" href="#capabilities" style="margin-top:10px">Core Capabilities <i>↗</i></a>
+            </div>
+        </div>
+    </section>
+
+    <section class="sky">
+        <div class="w ctr">
+            <span class="bdg rv">Why Choose the Platform?</span>
+            <h2 class="rv">Built for clearer, more accountable operations</h2>
+            <div class="fg">
+                <div class="fi rv">
+                    <h3>Centralized Operations</h3>
+                    <p>Bring workforce and operational processes together in one management environment.</p>
+                </div>
+                <div class="fi rv" style="--d:.1s">
+                    <h3>Improved Efficiency</h3>
+                    <p>Reduce repetitive administrative tasks and simplify everyday business processes.</p>
+                </div>
+                <div class="fi rv" style="--d:.2s">
+                    <h3>Structured Approvals</h3>
+                    <p>Establish clear approval responsibilities and improve accountability.</p>
+                </div>
+                <div class="fi rv">
+                    <h3>Flexible Configuration</h3>
+                    <p>Adapt forms, fields, and workflows to suit different organizational requirements.</p>
+                </div>
+                <div class="fi rv" style="--d:.1s">
+                    <h3>Better Visibility</h3>
+                    <p>Make it easier to follow requests, review submissions, and understand operational activities.</p>
+                </div>
+                <div class="fi rv" style="--d:.2s">
+                    <h3>Scalable Business Processes</h3>
+                    <p>Support different departments and operational requirements through configurable processes.</p>
+                </div>
+            </div><a class="btn rv" href="#contact">Get Started <i>↗</i></a>
+        </div>
+    </section>
+
+    <section class="cp" id="capabilities">
+        <div class="bg" data-sc="5"></div>
+        <div class="cp-track" id="cpTrack">
+            <div class="cp-sticky">
+                <div class="w">
+                    <div class="cp-head">
+                        <div>
+                            <span class="bdg">Core Capabilities</span>
+                            <h2 style="max-width:20ch">Everything your teams need to run operations</h2>
+                        </div>
+                        <div class="cp-meta">
+                            <span id="cpStep">01 / 07</span>
+                            <div class="cp-prog" aria-hidden="true"><i id="cpProg"></i></div>
+                        </div>
+                    </div>
+                    <div class="cg">
+                        <div class="tl" role="tablist">
+                            <button role="tab" aria-selected="true" data-sc="1"
+                                data-d="Support better coordination and management of employees and operational teams across the organization."><span>Workforce
+                                    Management</span></button>
+                            <button role="tab" aria-selected="false" data-sc="3"
+                                data-d="Organize business activities, operational requests, and internal processes within a centralized platform."><span>Operational
+                                    Management</span></button>
+                            <button role="tab" aria-selected="false" data-sc="2"
+                                data-d="Create customized digital forms for business processes such as requisitions, requests, and information collection without requiring programming knowledge."><span>Digital
+                                    Form Builder</span></button>
+                            <button role="tab" aria-selected="false" data-sc="4"
+                                data-d="Configure approval processes, assign responsible reviewers, and establish structured review and decision-making procedures."><span>Workflow
+                                    &amp; Approval Management</span></button>
+                            <button role="tab" aria-selected="false" data-sc="0"
+                                data-d="Configure rules that control form behavior, field requirements, visibility, and other operational processes."><span>Business
+                                    Rules &amp; Automation</span></button>
+                            <button role="tab" aria-selected="false" data-sc="5"
+                                data-d="Keep operational information, submissions, and business records organized and accessible within the platform."><span>Centralized
+                                    Information Management</span></button>
+                            <button role="tab" aria-selected="false" data-sc="1"
+                                data-d="Support better operational oversight by making business information and process records easier to access and review."><span>Reporting
+                                    &amp; Visibility</span></button>
+                        </div>
+                        <div class="pn" id="pn" data-sc="1">
+                            <div class="pn-aura" id="pnAura" aria-hidden="true"></div>
+                            <canvas id="c3" aria-hidden="true"></canvas>
+                            <div class="t" id="pt">
+                                <span class="pn-pill" id="pnPill">Capability 01 · Scroll Stage</span>
+                                <h3 id="ph">Workforce Management</h3>
+                                <p id="pd">Support better coordination and management of employees and operational teams
+                                    across
+                                    the organization.</p>
+                                <div class="pn-step-bar" aria-hidden="true"><i id="pnBar"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="hw" id="how"><canvas id="c2" aria-hidden="true"></canvas>
+        <div class="w">
+            <span class="bdg rv">How It Works</span>
+            <h2 class="rv" style="max-width:18ch">A Simpler Way to Manage Operations</h2>
+            <div class="st">
+                <div class="sc rv"><b>1</b>
+                    <h3>Configure</h3>
+                    <p>Set up your organization’s forms, operational processes, and approval workflows.</p>
+                </div>
+                <div class="sc rv" style="--d:.12s"><b>2</b>
+                    <h3>Submit</h3>
+                    <p>Employees and authorized users submit requests and operational information through digital forms.
+                    </p>
+                </div>
+                <div class="sc rv" style="--d:.24s"><b>3</b>
+                    <h3>Review</h3>
+                    <p>Assigned personnel review submissions and take the required approval actions.</p>
+                </div>
+                <div class="sc rv" style="--d:.36s"><b>4</b>
+                    <h3>Manage</h3>
+                    <p>Keep operational records organized and monitor the progress of business processes.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="teams">
+        <div class="w ctr">
+            <span class="bdg rv">Designed for Different Departments</span>
+            <h2 class="rv">One platform for every team</h2>
+            <div class="ch rv"><span>Administration</span><span>Human
+                    Resources</span><span>Procurement</span><span>Finance</span><span>Operations</span><span>Project
+                    Management</span><span>Field Operations</span><span>Management</span></div>
+            <p class="ld rv">The platform can support different departments and operational teams. Each department can
+                use configurable forms and workflows that support its business processes.</p>
+            <h3 class="rv" style="margin-top:70px;font-size:1.6rem">Example Business Processes</h3>
+            <div class="sd rv"><button id="pv">Previous Process</button>
+                <div class="sv" id="sv">
+                    <article class="on" data-sc="3">
+                        <div><span class="bdg">Procurement</span>
+                            <h3>Purchase and material requisitions</h3>
+                            <p>Collect requisitions through digital forms and route them to the right reviewers.</p><a
+                                href="#contact">GET STARTED ↗</a>
+                        </div>
+                    </article>
+                    <article data-sc="2">
+                        <div><span class="bdg">Administration</span>
+                            <h3>Internal service requests</h3>
+                            <p>Give teams one place to raise and follow internal requests.</p><a href="#contact">GET
+                                STARTED ↗</a>
+                        </div>
+                    </article>
+                    <article data-sc="1">
+                        <div><span class="bdg">Operations</span>
+                            <h3>Equipment and resource requests</h3>
+                            <p>Request equipment and resources with clear approval responsibilities.</p><a
+                                href="#contact">GET STARTED ↗</a>
+                        </div>
+                    </article>
+                    <article data-sc="4">
+                        <div><span class="bdg">Project Management</span>
+                            <h3>Operational information collection</h3>
+                            <p>Capture operational information in structured, configurable forms.</p><a
+                                href="#contact">GET STARTED ↗</a>
+                        </div>
+                    </article>
+                    <article data-sc="5">
+                        <div><span class="bdg">Finance</span>
+                            <h3>Departmental requests</h3>
+                            <p>Let each department use forms and workflows suited to its own processes.</p><a
+                                href="#contact">GET STARTED ↗</a>
+                        </div>
+                    </article>
+                    <article data-sc="0">
+                        <div><span class="bdg">Management</span>
+                            <h3>Multi-level review and approval</h3>
+                            <p>Set up multi-level reviews so every decision has an accountable owner.</p><a
+                                href="#contact">GET STARTED ↗</a>
+                        </div>
+                    </article>
+                    <article data-sc="2">
+                        <div><span class="bdg">Field Operations</span>
+                            <h3>Field workforce-related processes</h3>
+                            <p>Support operational processes that involve your field workforce.</p><a
+                                href="#contact">GET STARTED ↗</a>
+                        </div>
+                    </article>
+                </div><button id="nx">Next Process</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="fin" id="contact">
+        <div class="w">
+            <h2 class="rv">Take Control of Your Workforce and Operations.</h2>
+            <p class="rv">Bring your people, processes, and operational activities into a more organized management
+                environment.</p>
+            <p class="rv">Simplify workflows, improve accountability, and build a more efficient way of working.</p>
+            <div class="hb rv"><a class="btn" href="#">Get Started <i>↗</i></a><a class="btn o" href="#">Contact Us
+                    <i>↗</i></a></div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="w fgd">
+            <div><a class="lg" href="#top"><svg width="38" height="38" viewBox="0 0 40 40" fill="none" stroke="#4f86ff"
+                        stroke-width="3">
+                        <circle cx="20" cy="20" r="16" />
+                        <circle cx="20" cy="20" r="8" stroke="#fff" />
+                    </svg><span>FieldOps<small>Management Platform</small></span></a>
+                <p>Field Workforce &amp; Operations Management Platform is a centralized solution designed to simplify
+                    workforce coordination, streamline business processes, and improve operational management.</p>
+            </div>
+            <div>
+                <h4>Platform</h4>
+                <ul>
+                    <li><a href="#about">About</a></li>
+                    <li><a href="#capabilities">Core Capabilities</a></li>
+                    <li><a href="#how">How It Works</a></li>
+                    <li><a href="#contact">Contact Us</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4>Departments</h4>
+                <ul>
+                    <li>Administration</li>
+                    <li>Human Resources</li>
+                    <li>Procurement</li>
+                    <li>Finance</li>
+                    <li>Operations</li>
+                    <li>Field Operations</li>
+                </ul>
+            </div>
+        </div>
+    </footer>
+    <a class="up" id="up" href="#top" aria-label="Back to top">↑</a>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        (function () {
+            var $ = function (s, r) { return (r || document).querySelector(s) }, $$ = function (s, r) { return [].slice.call((r || document).querySelectorAll(s)) };
+            /* illustrated scenes (stand-ins for photos) */
+            var SK = ['#f1c6a5', '#c68b63', '#8d5a3b', '#e3ad86', '#6b4128'];
+            function P(x, y, s, k, c, hr, o) {
+                var g = '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path d="M-72 140C-72 80-40 54 0 54S72 80 72 140Z" fill="' + c + '"/>';
+                if (o === 'v') g += '<path d="M-40 66L-18 140H18L40 66C20 78-20 78-40 66Z" fill="#ff7a1a"/><path d="M-26 90L-14 140M26 90L14 140" stroke="#eef6a0" stroke-width="5"/>';
+                g += '<rect x="-11" y="28" width="22" height="30" fill="' + SK[k] + '"/><circle cy="6" r="33" fill="' + SK[k] + '"/>';
+                g += o === 'v' ? '<path d="M-40 4a40 40 0 0180 0z" fill="#ffc21a"/><rect x="-46" y="1" width="92" height="9" rx="4" fill="#e3a200"/>' : '<path d="M-35 4a35 35 0 0170 0q-35-16-70 0z" fill="' + hr + '"/>';
+                return g + '</g>'
+            }
+            var D = [['#0a2a7a', '#3a74ff', [[300, 330, 1.5, 0, '#1d2c5e', '#2b1a10'], [520, 350, 1.4, 1, '#e8eefc', '#111']]],
+            ['#ff9a4d', '#1d4fbf', [[220, 350, 1.2, 3, '#2c3a6e', '#222', 'v'], [420, 330, 1.35, 1, '#2c3a6e', '#111', 'v'], [600, 360, 1.2, 0, '#2c3a6e', '#5a3a1a', 'v']]],
+            ['#0b1f66', '#5a8dff', [[410, 320, 1.9, 2, '#e9f0ff', '#111']]],
+            ['#12307f', '#7fb0ff', [[200, 370, 1.2, 0, '#ffffff', '#a0522d'], [400, 330, 1.4, 4, '#1d2c5e', '#111'], [600, 365, 1.2, 3, '#b7c9ff', '#2b1a10']]],
+            ['#0c2370', '#4a86ff', [[300, 340, 1.6, 3, '#f4d6e0', '#d9d9d9'], [540, 360, 1.3, 1, '#243a85', '#111']]],
+            ['#071a55', '#2f6bff', [[280, 350, 1.3, 1, '#9db8ff', '#111'], [470, 330, 1.5, 0, '#fff', '#4a2a10'], [640, 370, 1.1, 2, '#1d2c5e', '#111']]]];
+            var S = D.map(function (d, i) {
+                var b = ''; for (var j = 0; j < 6; j++)b += '<circle cx="' + (90 + j * 140 + i * 20) + '" cy="' + (70 + (j * 53 + i * 40) % 200) + '" r="' + (30 + j * 9) + '" fill="#fff" opacity=".12" filter="url(#b)"/>';
+                var p = ''; d[2].forEach(function (a) { p += P(a[0], a[1], a[2], a[3], a[4], a[5], a[6]) });
+                var v = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + d[0] + '"/><stop offset="1" stop-color="' + d[1] + '"/></linearGradient><filter id="b"><feGaussianBlur stdDeviation="14"/></filter></defs><rect width="800" height="600" fill="url(#g)"/><rect x="470" y="40" width="300" height="240" rx="8" fill="#fff" opacity=".1"/>' + b + '<rect y="470" width="800" height="130" fill="#020a3c" opacity=".55"/>' + p + '<rect x="330" y="455" width="140" height="10" rx="4" fill="#cfd8ff" opacity=".85"/></svg>';
+                return 'url("data:image/svg+xml,' + encodeURIComponent(v) + '")'
+            });
+            function paint(r) { $$('[data-sc]:not([role="tab"])', r).forEach(function (e) { e.style.backgroundImage = S[+e.dataset.sc % 6] }) } paint();
+            /* header, menu, to-top */
+            var hd = $('#hd'), up = $('#up'); function sc() { hd.classList.toggle('s', scrollY > 60); up.classList.toggle('v', scrollY > 600) } sc(); addEventListener('scroll', sc, { passive: true });
+            var mn = $('#mn'), ham = $('#ham'), mnx = $('#mnx');
+            function closeMenu() { mn.classList.remove('o'); ham.setAttribute('aria-expanded', 'false') }
+            ham.onclick = function () { var open = mn.classList.toggle('o'); ham.setAttribute('aria-expanded', open ? 'true' : 'false'); if (open) mnx.focus() };
+            mnx.onclick = closeMenu;
+            $$('a', mn).forEach(function (a) { a.onclick = closeMenu });
+            addEventListener('keydown', function (e) { if (e.key === 'Escape' && mn.classList.contains('o')) { closeMenu(); ham.focus() } });
+            document.addEventListener('click', function (e) { if (mn.classList.contains('o') && !mn.contains(e.target) && !ham.contains(e.target)) closeMenu() });
+            /* reveal */
+            var rv = $$('.rv'); if ('IntersectionObserver' in window) { var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) } }) }, { threshold: .15, rootMargin: '0px 0px -5% 0px' }); rv.forEach(function (e) { io.observe(e) }) } else rv.forEach(function (e) { e.classList.add('in') });
+            /* hero slides */
+            var sl = $$('.sl'), si = 0; setInterval(function () { sl[si].classList.remove('on'); si = (si + 1) % sl.length; sl[si].classList.add('on') }, 6500);
+            /* capability tabs + scroll-driven Three.js morph choreography */
+            var tabs = $$('.tl button'), pn = $('#pn'), pt = $('#pt'), cpTrack = $('#cpTrack'), cpSticky = $('.cp-sticky'), cpStep = $('#cpStep'), cpProg = $('#cpProg'), pnPill = $('#pnPill'), pnBar = $('#pnBar'), pnAura = $('#pnAura'), activeTab = 0, scrollPhase = 0, scrollVel = 0, lastScrollPhase = 0;
+            function activateCapability(idx) {
+                if (idx === activeTab && tabs[idx].getAttribute('aria-selected') === 'true') return;
+                activeTab = idx;
+                var t = tabs[idx];
+                tabs.forEach(function (x, i) { x.setAttribute('aria-selected', i === idx ? 'true' : 'false') });
+                if (cpStep) cpStep.textContent = ('0' + (idx + 1)).slice(-2) + ' / ' + ('0' + tabs.length).slice(-2);
+                if (pnPill) pnPill.textContent = 'Capability ' + ('0' + (idx + 1)).slice(-2) + ' · Scroll Stage';
+                pt.classList.add('x');
+                clearTimeout(activateCapability._tm);
+                activateCapability._tm = setTimeout(function () {
+                    pn.style.backgroundImage = S[+t.dataset.sc % 6];
+                    $('#ph').innerHTML = t.innerHTML;
+                    $('#pd').textContent = t.dataset.d;
+                    pt.classList.remove('x');
+                }, 150);
+            }
+            tabs.forEach(function (t, idx) {
+                t.onclick = function () {
+                    activateCapability(idx);
+                    if (cpTrack && innerWidth > 860) {
+                        var rect = cpTrack.getBoundingClientRect();
+                        var trackStart = scrollY + rect.top - 84;
+                        var stickyH = cpSticky ? cpSticky.offsetHeight : Math.max(300, innerHeight - 84);
+                        var scrollable = Math.max(1, cpTrack.offsetHeight - stickyH);
+                        var targetP = tabs.length > 1 ? idx / (tabs.length - 1) : 0;
+                        scrollTo({ top: trackStart + targetP * scrollable, behavior: 'smooth' });
+                    } else {
+                        scrollPhase = idx;
+                    }
+                };
+            });
+            function updateCapabilityScroll() {
+                if (!cpTrack || !tabs.length || innerWidth <= 860) return;
+                var rect = cpTrack.getBoundingClientRect();
+                var stickyH = cpSticky ? cpSticky.offsetHeight : Math.max(300, innerHeight - 84);
+                var scrollable = Math.max(1, cpTrack.offsetHeight - stickyH);
+                var p = Math.min(1, Math.max(0, (84 - rect.top) / scrollable));
+                var nextPhase = p * (tabs.length - 1);
+                scrollVel = Math.min(1.6, Math.max(-1.6, (nextPhase - lastScrollPhase) * 6));
+                lastScrollPhase = nextPhase;
+                scrollPhase = nextPhase;
+                if (cpProg) cpProg.style.width = ((p * 86) + 14).toFixed(1) + '%';
+                var idx = Math.min(tabs.length - 1, Math.round(scrollPhase));
+                activateCapability(idx);
+            }
+            addEventListener('scroll', updateCapabilityScroll, { passive: true });
+            addEventListener('resize', updateCapabilityScroll);
+            updateCapabilityScroll();
+            /* process slider */
+            var ar = $$('#sv article'), ai = 0; function go(n) { ar[ai].classList.remove('on'); ai = (n + ar.length) % ar.length; ar[ai].classList.add('on') }
+            $('#nx').onclick = function () { go(ai + 1) }; $('#pv').onclick = function () { go(ai - 1) };
+            /* three.js network */
+            if (typeof THREE === 'undefined') return;
+            var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+            function net(cv, big) {
+                var host = cv.parentElement, R = new THREE.WebGLRenderer({ canvas: cv, alpha: true, antialias: true }); R.setPixelRatio(Math.min(devicePixelRatio, 2));
+                var sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(50, 1, .1, 100); cam.position.z = 14;
+                var n = big ? 80 : 55, pts = [], v = [], H = 6.5, W = H;
+                for (var i = 0; i < n; i++) { pts.push(new THREE.Vector3((Math.random() - .5) * 2 * W, (Math.random() - .5) * 2 * H, (Math.random() - .5) * 6)); v.push(new THREE.Vector3((Math.random() - .5) * .012, (Math.random() - .5) * .012, 0)) }
+                var pg = new THREE.BufferGeometry().setFromPoints(pts), pm = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0x9dbbff, size: .14 })); sc.add(pm);
+                var lp = new Float32Array(n * n * 3), lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
+                var ls = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x4f86ff, transparent: true, opacity: .45 })); ls.frustumCulled = false; sc.add(ls);
+                var ico; if (big) { ico = new THREE.Mesh(new THREE.IcosahedronGeometry(2.6, 1), new THREE.MeshBasicMaterial({ color: 0x6c9bff, wireframe: true, transparent: true, opacity: .5 })); ico.position.set(5.2, 0, 0); sc.add(ico); var in2 = new THREE.Mesh(new THREE.OctahedronGeometry(1.3), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: .7 })); in2.position.copy(ico.position); sc.add(in2) }
+                function size() { var w = host.clientWidth, h = host.clientHeight; R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); W = H * cam.aspect; if (ico) ico.position.x = w < 800 ? 0 : W * .62 } size(); addEventListener('resize', size);
+                var vis = true; new IntersectionObserver(function (e) { vis = e[0].isIntersecting }).observe(host); var mx = 0; addEventListener('pointermove', function (e) { mx = e.clientX / innerWidth - .5 }, { passive: true });
+                function f() {
+                    var k = 0, pa = pg.attributes.position;
+                    for (var i = 0; i < n; i++) { var p = pts[i]; if (!reduce) { p.add(v[i]); if (Math.abs(p.x) > W) v[i].x *= -1; if (Math.abs(p.y) > H) v[i].y *= -1 } pa.setXYZ(i, p.x, p.y, p.z) }
+                    for (i = 0; i < n; i++)for (var j = i + 1; j < n; j++)if (pts[i].distanceToSquared(pts[j]) < 7) { lp[k++] = pts[i].x; lp[k++] = pts[i].y; lp[k++] = pts[i].z; lp[k++] = pts[j].x; lp[k++] = pts[j].y; lp[k++] = pts[j].z }
+                    lg.setDrawRange(0, k / 3); lg.attributes.position.needsUpdate = true; pa.needsUpdate = true;
+                    if (ico && !reduce) { ico.rotation.x += .004; ico.rotation.y += .006; in2.rotation.y -= .01; in2.rotation.x -= .005 }
+                    cam.position.x += (mx * 2 - cam.position.x) * .04; cam.lookAt(0, 0, 0); R.render(sc, cam)
+                }
+                function loop() { if (vis) f(); if (!reduce) requestAnimationFrame(loop) } reduce ? f() : loop()
+            }
+            net($('#c1'), false); net($('#c2'), true);
+
+            /* three.js scroll-morphing 3D stage inside Core Capabilities preview (#c3) */
+            (function capStage(cv) {
+                if (!cv) return;
+                var host = cv.parentElement;
+                var R = new THREE.WebGLRenderer({ canvas: cv, alpha: true, antialias: true });
+                R.setPixelRatio(Math.min(devicePixelRatio, 2));
+                var sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(44, 1, .1, 100);
+                cam.position.set(0, .3, 10.6);
+
+                var COUNT = 128;
+                var targets = [];
+                for (var s = 0; s < 7; s++) {
+                    var arr = [];
+                    for (var i = 0; i < COUNT; i++) {
+                        var t = i / COUNT * Math.PI * 2;
+                        var phi = Math.acos(1 - 2 * (i + .5) / COUNT);
+                        var theta = Math.PI * (1 + Math.sqrt(5)) * i;
+                        var x = 0, y = 0, z = 0;
+                        if (s === 0) { // Workforce: dual orbit rings
+                            var ring = i % 2 === 0 ? 2.9 : 1.7;
+                            x = Math.cos(t * 2) * ring;
+                            y = Math.sin(t * 2) * ring * .68 + ((i % 2) - .5) * .7;
+                            z = Math.sin(t * 3) * 1.2;
+                        } else if (s === 1) { // Operations: structured 3D matrix grid
+                            var gx = (i % 6) - 2.5, gy = (Math.floor(i / 6) % 4) - 1.5, gz = Math.floor(i / 24) - 2;
+                            x = gx * .92; y = gy * .98; z = gz * .9;
+                        } else if (s === 2) { // Form Builder: stacked modular planes
+                            var layer = i % 4, col = (i % 16) - 7.5;
+                            x = col * .42; y = (layer - 1.5) * 1.0; z = Math.cos(i) * .85;
+                        } else if (s === 3) { // Workflow: helix / directional flow wave
+                            var p = (i / COUNT - .5) * 6.8;
+                            x = p; y = Math.sin(p * 1.5) * 1.85; z = Math.cos(p * 1.5) * 1.55;
+                        } else if (s === 4) { // Business Rules: diamond octahedron lattice
+                            var r = 2.9;
+                            x = Math.sin(phi) * Math.cos(theta) * r;
+                            y = Math.cos(phi) * r;
+                            z = Math.sin(phi) * Math.sin(theta) * r;
+                            var norm = Math.abs(x) + Math.abs(y) + Math.abs(z) || 1;
+                            x = x / norm * 4.0; y = y / norm * 4.0; z = z / norm * 4.0;
+                        } else if (s === 5) { // Centralized Info: tight concentric sphere core
+                            var rad = i < 42 ? 1.25 : 2.65;
+                            x = Math.sin(phi) * Math.cos(theta) * rad;
+                            y = Math.cos(phi) * rad;
+                            z = Math.sin(phi) * Math.sin(theta) * rad;
+                        } else { // Reporting & Visibility: rising bar/constellation wave
+                            var bx = (i % 16) - 7.5, by = ((i % 8) / 7) * 3.1 - 1.35 + Math.sin(bx * .6) * .75;
+                            x = bx * .44; y = by; z = (Math.floor(i / 32) - 1.5) * .85;
+                        }
+                        arr.push(x, y, z);
+                    }
+                    targets.push(arr);
+                }
+
+                var PALETTE = [0x4f86ff, 0x38bdf8, 0x818cf8, 0x34d399, 0x60a5fa, 0xa78bfa, 0x2dd4bf];
+                var AURA_COLORS = [
+                    'rgba(79,134,255,.55)',
+                    'rgba(56,189,248,.55)',
+                    'rgba(129,140,248,.55)',
+                    'rgba(52,211,153,.52)',
+                    'rgba(96,165,250,.55)',
+                    'rgba(167,139,250,.55)',
+                    'rgba(45,212,191,.55)'
+                ];
+                var cur = targets[0].slice();
+                var geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cur), 3));
+                var pMat = new THREE.PointsMaterial({ color: 0xb8d0ff, size: .2, transparent: true, opacity: .98 });
+                var cloud = new THREE.Points(geo, pMat);
+                sc.add(cloud);
+
+                var linePos = new Float32Array(COUNT * 8 * 6);
+                var lineGeo = new THREE.BufferGeometry();
+                lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
+                var lineMat = new THREE.LineBasicMaterial({ color: PALETTE[0], transparent: true, opacity: .5 });
+                var links = new THREE.LineSegments(lineGeo, lineMat);
+                links.frustumCulled = false;
+                sc.add(links);
+
+                var core = new THREE.Mesh(
+                    new THREE.IcosahedronGeometry(1.3, 1),
+                    new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: .34 })
+                );
+                var outerRing = new THREE.Mesh(
+                    new THREE.TorusGeometry(2.45, .025, 8, 64),
+                    new THREE.MeshBasicMaterial({ color: 0x7fa4ff, transparent: true, opacity: .35 })
+                );
+                core.position.set(1.2, .35, 0);
+                outerRing.position.set(1.2, .35, 0);
+                cloud.position.set(1.2, .35, 0);
+                links.position.set(1.2, .35, 0);
+                sc.add(core);
+                sc.add(outerRing);
+
+                function resizeCap() {
+                    var w = host.clientWidth || 500, h = host.clientHeight || 360;
+                    R.setSize(w, h, false);
+                    cam.aspect = w / h;
+                    cam.updateProjectionMatrix();
+                    var ox = w < 520 ? 0 : 1.05;
+                    core.position.x = outerRing.position.x = cloud.position.x = links.position.x = ox;
+                }
+                resizeCap();
+                addEventListener('resize', resizeCap);
+
+                var vis = true, smoothPhase = 0, tmpColor = new THREE.Color(), nextColor = new THREE.Color();
+                new IntersectionObserver(function (e) { vis = e[0].isIntersecting }).observe(host);
+
+                function renderCap() {
+                    updateCapabilityScroll();
+                    smoothPhase += (scrollPhase - smoothPhase) * .12;
+                    scrollVel *= .88;
+                    var a = Math.min(6, Math.max(0, Math.floor(smoothPhase)));
+                    var b = Math.min(6, a + 1);
+                    var frac = smoothPhase - a;
+                    var transitionPulse = Math.sin(frac * Math.PI);
+                    var srcA = targets[a], srcB = targets[b];
+                    var posAttr = geo.attributes.position;
+
+                    // Kinetic swirl during transitions between scroll milestones
+                    var swirl = (transitionPulse * .48) + Math.abs(scrollVel) * .35;
+                    for (var i = 0; i < COUNT; i++) {
+                        var idx3 = i * 3;
+                        var gx = srcA[idx3] * (1 - frac) + srcB[idx3] * frac;
+                        var gy = srcA[idx3 + 1] * (1 - frac) + srcB[idx3 + 1] * frac;
+                        var gz = srcA[idx3 + 2] * (1 - frac) + srcB[idx3 + 2] * frac;
+                        if (!reduce && swirl > .01) {
+                            gx += Math.sin(i * .9 + smoothPhase * 6) * swirl;
+                            gy += Math.cos(i * .7 + smoothPhase * 5) * swirl * .65;
+                            gz += Math.sin(i * 1.1 + smoothPhase * 7) * swirl;
+                        }
+                        cur[idx3] += (gx - cur[idx3]) * .16;
+                        cur[idx3 + 1] += (gy - cur[idx3 + 1]) * .16;
+                        cur[idx3 + 2] += (gz - cur[idx3 + 2]) * .16;
+                    }
+                    posAttr.array.set(cur);
+                    posAttr.needsUpdate = true;
+
+                    var k = 0, maxSegs = linePos.length / 6;
+                    for (var i = 0; i < COUNT && k < maxSegs; i++) {
+                        var ix = cur[i * 3], iy = cur[i * 3 + 1], iz = cur[i * 3 + 2];
+                        for (var j = i + 1; j < COUNT && k < maxSegs; j++) {
+                            var dx = ix - cur[j * 3], dy = iy - cur[j * 3 + 1], dz = iz - cur[j * 3 + 2];
+                            if (dx * dx + dy * dy + dz * dz < 2.25) {
+                                var o = k * 6;
+                                linePos[o] = ix; linePos[o + 1] = iy; linePos[o + 2] = iz;
+                                linePos[o + 3] = cur[j * 3]; linePos[o + 4] = cur[j * 3 + 1]; linePos[o + 5] = cur[j * 3 + 2];
+                                k++;
+                            }
+                        }
+                    }
+                    lineGeo.setDrawRange(0, k * 2);
+                    lineGeo.attributes.position.needsUpdate = true;
+
+                    tmpColor.setHex(PALETTE[a]);
+                    nextColor.setHex(PALETTE[b]);
+                    tmpColor.lerp(nextColor, frac);
+                    lineMat.color.copy(tmpColor);
+                    outerRing.material.color.copy(tmpColor);
+                    pMat.size = .19 + transitionPulse * .07;
+
+                    var tNow = reduce ? 0 : performance.now() * .00035;
+                    var rotY = smoothPhase * .95 + tNow;
+                    var rotX = Math.sin(smoothPhase * 1.1) * .42 + tNow * .25;
+                    cloud.rotation.set(rotX, rotY, transitionPulse * .2);
+                    links.rotation.set(rotX, rotY, transitionPulse * .2);
+                    core.rotation.set(-rotX * 1.1, -rotY * 1.35, smoothPhase * .5);
+                    outerRing.rotation.set(Math.PI / 2.6 + smoothPhase * .45, Math.sin(smoothPhase) * .6, rotY * .5);
+
+                    var pulse = 1 + transitionPulse * .28;
+                    core.scale.setScalar(pulse);
+                    outerRing.scale.setScalar(1 + transitionPulse * .15);
+
+                    // Dynamic camera sweep per capability milestone
+                    cam.position.x = Math.sin(smoothPhase * .85) * 1.1;
+                    cam.position.y = .25 + Math.cos(smoothPhase * .65) * .45;
+                    cam.position.z = 10.6 - transitionPulse * 1.15 - Math.min(.9, Math.abs(scrollVel) * .6);
+                    cam.lookAt(core.position.x * .45, .15, 0);
+
+                    // Continuous scroll-driven motion on tab list items, preview card tilt, aura & inner step bar
+                    if (!reduce && innerWidth > 860) {
+                        var tiltY = Math.sin(smoothPhase * 1.4) * 3.2;
+                        var tiltX = (transitionPulse - .3) * -2.6;
+                        var cardScale = 1 + transitionPulse * .018;
+                        host.style.transform = 'perspective(1100px) rotateY(' + tiltY.toFixed(2) + 'deg) rotateX(' + tiltX.toFixed(2) + 'deg) scale(' + cardScale.toFixed(4) + ')';
+                        if (pnAura) {
+                            var ax = Math.sin(smoothPhase * 1.1) * 48;
+                            var ay = Math.cos(smoothPhase * .9) * 32;
+                            pnAura.style.transform = 'translate(' + ax.toFixed(1) + 'px,' + ay.toFixed(1) + 'px) scale(' + (1 + transitionPulse * .28).toFixed(3) + ')';
+                            pnAura.style.background = 'radial-gradient(circle, ' + AURA_COLORS[a] + ', transparent 72%)';
+                        }
+                        if (pnBar) {
+                            var stepFill = .12 + frac * .88;
+                            pnBar.style.transform = 'scaleX(' + (activeTab === tabs.length - 1 ? 1 : stepFill).toFixed(3) + ')';
+                        }
+                        tabs.forEach(function (btn, idx) {
+                            var dist = Math.abs(idx - smoothPhase);
+                            var proximity = Math.max(0, 1 - dist);
+                            var slide = proximity * 12;
+                            var scBtn = .975 + proximity * .035;
+                            btn.style.transform = 'translateX(' + slide.toFixed(1) + 'px) scale(' + scBtn.toFixed(3) + ')';
+                            btn.style.opacity = (.58 + proximity * .42).toFixed(2);
+                            var fill = smoothPhase >= idx ? Math.min(1, smoothPhase - idx + (idx === tabs.length - 1 ? 1 : 0)) : 0;
+                            btn.style.setProperty('--fill', idx === activeTab ? Math.max(.2, 1 - Math.abs(idx - smoothPhase)).toFixed(3) : '0');
+                        });
+                    }
+
+                    R.render(sc, cam);
+                }
+
+                function capLoop() {
+                    if (vis) renderCap();
+                    if (!reduce) requestAnimationFrame(capLoop);
+                }
+                if (reduce) {
+                    addEventListener('scroll', renderCap, { passive: true });
+                    renderCap();
+                } else {
+                    capLoop();
+                }
+            })($('#c3'));
+        })();
+    </script>
+</body>
+
+</html>
