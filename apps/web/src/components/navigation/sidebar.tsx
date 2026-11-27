@@ -99,10 +99,10 @@ export function Sidebar({
 
   return (
     <aside
-      className={`flex h-full w-64 shrink-0 flex-col border-r border-slate-800 bg-slate-950 text-slate-300 ${className}`}
+      className={`flex h-full w-64 shrink-0 flex-col overflow-hidden border-r border-slate-800 bg-slate-950 text-slate-300 ${className}`}
     >
       {/* Brand Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-3">
           <div className="h-8 w-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
             F
@@ -130,15 +130,15 @@ export function Sidebar({
       </div>
 
       {/* Tenant Context Selector */}
-      <div className="p-3 border-b border-slate-800">
+      <div className="p-2.5 border-b border-slate-800 shrink-0">
         <TenantSwitcher />
       </div>
 
-      {/* Navigation Links */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      {/* Fixed Navigation Links */}
+      <div className="flex-1 overflow-hidden px-3 py-3 space-y-3.5">
         {NAV_ITEMS.map((section) => (
-          <div key={section.category} className="space-y-1">
-            <h2 className="px-3 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+          <div key={section.category} className="space-y-0.5">
+            <h2 className="px-3 pb-0.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
               {section.category}
             </h2>
             {section.items.map((item) => {
@@ -149,7 +149,7 @@ export function Sidebar({
                 return (
                   <div
                     key={item.label}
-                    className="flex items-center px-3 py-1.5 text-xs font-medium text-slate-500 rounded-md cursor-not-allowed opacity-60"
+                    className="flex items-center px-3 py-1 text-xs font-medium text-slate-500 rounded-md cursor-not-allowed opacity-60"
                   >
                     <Icon className="w-4 h-4 mr-2.5 shrink-0" />
                     <span>{item.label}</span>
@@ -182,7 +182,7 @@ export function Sidebar({
       </div>
 
       {/* Footer Meta */}
-      <div className="p-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+      <div className="px-3 py-2.5 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
         <span>Multi-Tenant Active</span>
         <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
       </div>
