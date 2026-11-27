@@ -86,4 +86,46 @@ export interface SubmissionRepository {
   ): Promise<SubmissionDetailRowEntity[]>;
 
   listSubmissions(params: SubmissionFilterParams): Promise<PaginatedSubmissionsResult>;
+
+  createAuthenticatedSubmission?(params: {
+    organizationId: string;
+    formId: string;
+    formVersionId: string;
+    referenceNumber?: string | null;
+    status: string;
+    dataJsonb: Record<string, unknown>;
+    detailRows?: Array<{
+      tabId: string;
+      rowOrder: number;
+      dataJsonb: Record<string, unknown>;
+    }>;
+    workflowStart?: {
+      workflowId: string | null;
+      stepId: string;
+      stageName: string;
+      assigneeIndex: number;
+      assignedApproverId: string | null;
+      assignedRoleKey: string | null;
+    } | null;
+  }): Promise<FormSubmissionEntity>;
+
+  resubmitReturnedSubmission?(params: {
+    organizationId: string;
+    submissionId: string;
+    status: string;
+    dataJsonb: Record<string, unknown>;
+    detailRows?: Array<{
+      tabId: string;
+      rowOrder: number;
+      dataJsonb: Record<string, unknown>;
+    }>;
+    workflowStart?: {
+      workflowId: string | null;
+      stepId: string;
+      stageName: string;
+      assigneeIndex: number;
+      assignedApproverId: string | null;
+      assignedRoleKey: string | null;
+    } | null;
+  }): Promise<FormSubmissionEntity>;
 }

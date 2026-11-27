@@ -1,17 +1,24 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FileSpreadsheet, Plus, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FileSpreadsheet, Plus, Search, Upload, X } from "lucide-react";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { FormListItem } from "@/lib/repositories/form-repository";
 
 export default function FormLibraryPage() {
+  const router = useRouter();
   const { activeOrganization, isLoading: authLoading } = useAuth();
   const activeOrganizationId = activeOrganization?.id ?? null;
   const [forms, setForms] = useState<FormListItem[]>([]);
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importJson, setImportJson] = useState("");
+  const [importTitle, setImportTitle] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   useEffect(() => {
     if (authLoading) return;
     if (!activeOrganizationId) {
@@ -62,13 +69,27 @@ export default function FormLibraryPage() {
             {activeOrganization?.name ?? "the active organization"}.
           </p>
         </div>
-        <Link
-          href="/forms/new"
-          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded bg-emerald-700 px-4 text-xs font-semibold text-white sm:h-9 sm:w-auto"
-        >
-          <Plus className="h-4 w-4" />
-          Create Form
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={() => {
+              setImportError(null);
+              setImportOpen(true);
+            }}
+            disabled={!activeOrganizationId}
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:h-9 sm:w-auto"
+          >
+            <Upload className="h-4 w-4 text-slate-500" />
+            Import Form
+          </button>
+          <Link
+            href="/forms/new"
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded bg-emerald-700 px-4 text-xs font-semibold text-white sm:h-9 sm:w-auto"
+          >
+            <Plus className="h-4 w-4" />
+            Create Form
+          </Link>
+        </div>
       </header>
       {state === "loading" && (
         <div
@@ -274,6 +295,140 @@ export default function FormLibraryPage() {
             )}
           </div>
         </>
+      )}
+
+      {importOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="import-form-title"
+        >
+          <div className="w-full max-w-xl rounded-md border border-slate-200 bg-white p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div>
+                <h2 id="import-form-title" className="text-base font-bold text-slate-900">
+                  Import Form Definition
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Imported forms are validated and created as Draft v1 in {activeOrganization?.name ?? "the active organization"}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportOpen(false)}
+                className="rounded p-1 text-slate-400 hover:text-slate-700"
+                aria-label="Close import dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1" htmlFor="import-form-file">
+                  Upload JSON File (.json)
+                </label>
+                <input
+                  id="import-form-file"
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const text = await file.text();
+                    setImportJson(text);
+                    setImportError(null);
+                  }}
+                  className="block w-full text-xs text-slate-600 file:mr-3 file:rounded file:border file:border-slate-300 file:bg-slate-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1" htmlFor="import-title-override">
+                  Form Title Override (optional)
+                </label>
+                <input
+                  id="import-title-override"
+                  type="text"
+                  value={importTitle}
+                  onChange={(e) => setImportTitle(e.target.value)}
+                  placeholder="Leave blank to use title from JSON"
+                  className="h-9 w-full rounded border border-slate-300 bg-white px-3 text-xs text-slate-900 focus:border-emerald-600 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1" htmlFor="import-json-text">
+                  Or Paste Form Definition JSON
+                </label>
+                <textarea
+                  id="import-json-text"
+                  rows={8}
+                  value={importJson}
+                  onChange={(e) => {
+                    setImportJson(e.target.value);
+                    if (importError) setImportError(null);
+                  }}
+                  placeholder='{"exportFormatVersion": 1, "schema": { ... }}'
+                  className="w-full rounded border border-slate-300 bg-slate-50 p-2.5 font-mono text-xs text-slate-900 focus:border-emerald-600 focus:outline-hidden"
+                />
+              </div>
+
+              {importError && (
+                <div role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                  {importError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
+              <button
+                type="button"
+                onClick={() => setImportOpen(false)}
+                disabled={importing}
+                className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={importing || !importJson.trim() || !activeOrganizationId}
+                onClick={async () => {
+                  if (!activeOrganizationId) return;
+                  setImporting(true);
+                  setImportError(null);
+                  try {
+                    const response = await fetch("/api/forms/import", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        organizationId: activeOrganizationId,
+                        title: importTitle.trim() || undefined,
+                        definition: importJson,
+                      }),
+                    });
+                    const body = await response.json();
+                    if (!response.ok) {
+                      throw new Error(body.error || "Import failed.");
+                    }
+                    setImportOpen(false);
+                    setImportJson("");
+                    setImportTitle("");
+                    router.push(`/forms/${encodeURIComponent(body.form.id)}/builder`);
+                  } catch (err) {
+                    setImportError(err instanceof Error ? err.message : "Failed to import form.");
+                  } finally {
+                    setImporting(false);
+                  }
+                }}
+                className="rounded bg-emerald-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+              >
+                {importing ? "Importing…" : "Import as Draft"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

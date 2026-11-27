@@ -9,6 +9,11 @@ import {
   generateUniqueFieldKey,
 } from '@field/form-engine';
 import { OrganizationMembership, OrganizationMemberRosterItem } from '@field/types';
+import {
+  buildFormExportEnvelope,
+  parseAndValidateImportPayload,
+  type FormExportEnvelope,
+} from '../forms/portability';
 
 export type FormAction =
   | 'manage_form'
@@ -717,5 +722,129 @@ export class FormService {
       action: 'manage_form',
     });
     return this.formRepository.createDraftFromPublished(params);
+  }
+
+  async exportFormVersion(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+    versionId: string;
+  }): Promise<{ fileName: string; envelope: FormExportEnvelope }> {
+    const auth = await this.authorizeFormAction({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      formId: params.formId,
+      action: 'manage_form',
+    });
+
+    let version: FormVersionEntity | null = null;
+    if (typeof this.formRepository.getVersionById === 'function') {
+      const found = await this.formRepository.getVersionById(
+        params.versionId,
+        params.organizationId,
+      );
+      if (found && found.form_id === params.formId) {
+        version = found;
+      }
+    }
+    if (!version) {
+      const versions = await this.formRepository.listVersions(
+        params.formId,
+        params.organizationId,
+      );
+      version = versions.find((v) => v.id === params.versionId) ?? null;
+    }
+
+    if (!version || version.organization_id !== params.organizationId) {
+      throw new Error(
+        `Form version not found or inaccessible in organization ${params.organizationId}`,
+      );
+    }
+
+    const safeKey =
+      (auth.form.key || 'form').replace(/[^a-zA-Z0-9_-]+/g, '_') || 'form';
+
+    return {
+      fileName: `${safeKey}_v${version.version_number}.form.json`,
+      envelope: buildFormExportEnvelope({
+        formKey: auth.form.key,
+        formTitle: auth.form.title,
+        formDescription: auth.form.description,
+        versionNumber: version.version_number,
+        schemaVersion: version.schema_version,
+        status: version.status,
+        schema: version.schema_jsonb,
+      }),
+    };
+  }
+
+  async importFormDefinition(params: {
+    userId: string;
+    organizationId: string;
+    rawPayload: unknown;
+    title?: string;
+    description?: string;
+  }): Promise<{ form: FormEntity; version: FormVersionEntity }> {
+    await this.checkMembership(params.userId, params.organizationId);
+
+    const parsed = parseAndValidateImportPayload(params.rawPayload, {
+      titleOverride: params.title,
+      descriptionOverride: params.description,
+    });
+
+    const slugBase =
+      parsed.title
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '') || 'imported_form';
+    const randomSuffix =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    const uniqueKey = `${slugBase}_${randomSuffix}`;
+
+    const created = await this.formRepository.createForm({
+      organizationId: params.organizationId,
+      key: uniqueKey,
+      title: parsed.title,
+      description: parsed.description,
+      createdBy: params.userId,
+      initialSchema: {
+        ...parsed.schema,
+        form: {
+          ...parsed.schema.form,
+          key: uniqueKey,
+          title: parsed.title,
+          description: parsed.description,
+          schemaVersion: 1,
+        },
+      },
+    });
+
+    const draftSchema: FormSchemaV1 = {
+      ...parsed.schema,
+      form: {
+        ...parsed.schema.form,
+        id: created.form.id,
+        key: created.form.key,
+        title: parsed.title,
+        description: parsed.description,
+        schemaVersion: 1,
+      },
+    };
+
+    const savedVersion = await this.formRepository.saveDraft({
+      versionId: created.version.id,
+      formId: created.form.id,
+      organizationId: params.organizationId,
+      schema: draftSchema,
+      changeNote: 'Imported form definition (Draft v1)',
+    });
+
+    return {
+      form: created.form,
+      version: savedVersion,
+    };
   }
 }

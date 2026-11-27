@@ -71,6 +71,7 @@ export interface FormBuilderProps {
   ) => void | Promise<void>;
   versions?: readonly FormVersionSummary[];
   onLoadVersions?: () => Promise<readonly FormVersionSummary[]>;
+  onExportVersion?: (version: FormVersionSummary) => void | Promise<void>;
   createId?: (prefix: string) => string;
   dataSources?: readonly BuilderDataSourceOption[];
   organizationMembers?: readonly BuilderMemberOption[];

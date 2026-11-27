@@ -42,11 +42,44 @@ export const FIELD_LABELS: Record<FieldType, string> = {
   calculated: "Calculated",
 };
 
+export const FIELD_DESCRIPTIONS: Record<FieldType, string> = {
+  text: "Short single-line answer",
+  textarea: "Multi-line notes or comments",
+  number: "Whole or decimal count",
+  currency: "Money amount with precision",
+  date: "Calendar date picker",
+  dropdown: "Pick one from a fixed list",
+  checkbox: "Yes / No toggle check",
+  lookup: "Pick from a connected list",
+  file: "Upload document or photo",
+  calculated: "Auto-computed total or score",
+};
+
+export const FIELD_EXAMPLES: Record<FieldType, string> = {
+  text: "e.g. Request Title, Department",
+  textarea: "e.g. Justification or delivery notes",
+  number: "e.g. Quantity, Units",
+  currency: "e.g. Unit Cost, Total Amount",
+  date: "e.g. Needed By, Inspection Date",
+  dropdown: "e.g. Priority (Low, Medium, High)",
+  checkbox: "e.g. Urgent request, Safety check",
+  lookup: "e.g. Supplier, Site, Asset",
+  file: "e.g. Quote PDF, Inspection photo",
+  calculated: "e.g. Quantity × Unit Cost",
+};
+
 export const TAB_LABELS: Record<TabType, string> = {
   form: "Form / Fields",
   details: "Details / Grid",
   notes: "Notes",
   documents: "Documents",
+};
+
+export const TAB_DESCRIPTIONS: Record<TabType, string> = {
+  form: "Organize extra fields into grouped sections",
+  details: "Repeatable line-item table for quantities, costs, or checklist rows",
+  notes: "Chronological activity notes and comments",
+  documents: "Supporting file attachments and required uploads",
 };
 
 export function defaultId(prefix: string): string {
@@ -277,4 +310,76 @@ export function collectFieldKeys(schema: FormSchemaV1): string[] {
 
 export function cloneSchema(schema: FormSchemaV1): FormSchemaV1 {
   return structuredClone(schema);
+}
+
+export function reorderFieldById<T extends { id: string; order: number }>(
+  items: T[],
+  draggedId: string,
+  targetId: string,
+): T[] {
+  const fromIdx = items.findIndex((item) => item.id === draggedId);
+  const toIdx = items.findIndex((item) => item.id === targetId);
+  if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return items;
+  const next = [...items];
+  const [moved] = next.splice(fromIdx, 1);
+  next.splice(toIdx, 0, moved);
+  return next.map((item, idx) => ({ ...item, order: idx + 1 }));
+}
+
+export function moveFieldBetweenSections(
+  schema: FormSchemaV1,
+  source: { area: "header" | "tab"; tabId?: string; sectionId: string; fieldId: string },
+  target: { area: "header" | "tab"; tabId?: string; sectionId: string; beforeFieldId?: string },
+): FormSchemaV1 {
+  if (
+    source.area === target.area &&
+    source.tabId === target.tabId &&
+    source.sectionId === target.sectionId
+  ) {
+    if (!target.beforeFieldId) return schema;
+    return updateSection(
+      schema,
+      source.area,
+      source.sectionId,
+      (sec) => ({
+        ...sec,
+        fields: reorderFieldById(sec.fields, source.fieldId, target.beforeFieldId!),
+      }),
+      source.tabId,
+    );
+  }
+
+  let movedField: FieldDefinition | undefined;
+  const findSectionFields = (sec: HeaderSectionDefinition | FormSectionDefinition) => {
+    movedField = sec.fields.find((f) => f.id === source.fieldId);
+    return {
+      ...sec,
+      fields: sec.fields
+        .filter((f) => f.id !== source.fieldId)
+        .map((f, idx) => ({ ...f, order: idx + 1 })),
+    };
+  };
+
+  let next = updateSection(schema, source.area, source.sectionId, findSectionFields, source.tabId);
+  if (!movedField) return schema;
+
+  next = updateSection(
+    next,
+    target.area,
+    target.sectionId,
+    (sec) => {
+      const copy = [...sec.fields];
+      const insertAt = target.beforeFieldId
+        ? copy.findIndex((f) => f.id === target.beforeFieldId)
+        : copy.length;
+      const idx = insertAt < 0 ? copy.length : insertAt;
+      copy.splice(idx, 0, movedField!);
+      return {
+        ...sec,
+        fields: copy.map((f, i) => ({ ...f, order: i + 1 })),
+      };
+    },
+    target.tabId,
+  );
+  return next;
 }

@@ -18,9 +18,6 @@ import {
   generateUniqueOptionKey,
   slugifyOptionKey,
   resolveOptionLabel,
-  parseFormula,
-  evaluateFormula,
-  extractFormulaFieldReferences,
   refactorFormulaIdentifier,
   slugifyFieldKey,
   generateUniqueFieldKey,
@@ -36,11 +33,15 @@ import {
   createSection,
   createTab,
   defaultId,
+  FIELD_DESCRIPTIONS,
+  FIELD_EXAMPLES,
   FIELD_LABELS,
   FIELD_TYPES,
+  moveFieldBetweenSections,
   moveItem,
   normalizeOrder,
   slugify,
+  TAB_DESCRIPTIONS,
   TAB_LABELS,
   TAB_TYPES,
   uniqueKey,
@@ -59,6 +60,11 @@ import { ListViewEditor } from "./list-view-editor";
 import { WorkflowEditor } from "./workflow-editor";
 import { PublishedPreviewModal } from "./published-preview-modal";
 import { ShareFormDialog } from "./share-form-dialog";
+import { VisualCalculationBuilder } from "./calculation-builder";
+import { PublishReadinessPanel } from "./publish-readiness-panel";
+import { analyzeFormReadiness, type ActionableDiagnostic } from "./validation-diagnostics";
+
+type BuilderGuidedStage = "build" | "workflow" | "publish";
 
 const WIDTHS = ["full", "half", "third", "quarter"] as const;
 const MODULE_TABS: BuilderModuleTab[] = [
@@ -127,10 +133,14 @@ function OrderButtons({
 
 function Toggle({
   label,
+  ariaLabel,
+  hint,
   checked,
   onChange,
 }: {
   label: string;
+  ariaLabel?: string;
+  hint?: string;
   checked: boolean;
   onChange: (value: boolean) => void;
 }) {
@@ -138,11 +148,15 @@ function Toggle({
     <label className="fb-toggle-row">
       <input
         type="checkbox"
+        aria-label={ariaLabel ?? label}
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
       <span className="fb-toggle" aria-hidden="true" />
-      <span>{label}</span>
+      <span>
+        {label}
+        {hint && <small className="fb-toggle-hint">{hint}</small>}
+      </span>
     </label>
   );
 }
@@ -154,6 +168,7 @@ export function FormBuilder({
   onPublish,
   versions,
   onLoadVersions,
+  onExportVersion,
   createId = defaultId,
   dataSources,
   organizationMembers,
@@ -171,6 +186,10 @@ export function FormBuilder({
   );
   const [schema, setSchema] = useState(() => cloneSchema(initialSchema));
   const [activeModule, setActiveModule] = useState<BuilderModuleTab>("Design");
+  const [activeStage, setActiveStage] = useState<BuilderGuidedStage>("build");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [livePreviewSplit, setLivePreviewSplit] = useState(false);
+  const [workflowFocusStepId, setWorkflowFocusStepId] = useState<string | null>(null);
   const [loadedVersions, setLoadedVersions] = useState<
     readonly FormVersionSummary[]
   >(versions ?? []);
@@ -435,18 +454,35 @@ export function FormBuilder({
       });
   };
 
-  const addField = (type: FieldType) => {
+  const addField = (
+    type: FieldType,
+    explicitTarget?: {
+      area: "header" | "tab" | "details";
+      sectionId?: string;
+      tabId?: string;
+      beforeFieldId?: string;
+    },
+  ) => {
     const isHeaderTarget =
-      (selection.kind === "section" || selection.kind === "field") &&
-      selection.area === "header";
+      explicitTarget
+        ? explicitTarget.area === "header"
+        : (selection.kind === "section" || selection.kind === "field") &&
+          selection.area === "header";
 
-    if (!isHeaderTarget && activeTab?.type === "details") {
+    if (
+      explicitTarget?.area === "details" ||
+      (!explicitTarget && !isHeaderTarget && activeTab?.type === "details")
+    ) {
+      const targetDetailsTab = explicitTarget?.tabId
+        ? schema.tabs.find((t) => t.id === explicitTarget.tabId && t.type === "details")
+        : activeTab;
+      if (!targetDetailsTab || targetDetailsTab.type !== "details") return;
       const id = idFactory.current("column");
       const key = generateUniqueFieldKey(FIELD_LABELS[type], allFieldKeys);
       update({
         ...schema,
         tabs: schema.tabs.map((tab) =>
-          tab.id === activeTab.id && tab.type === "details"
+          tab.id === targetDetailsTab.id && tab.type === "details"
             ? {
                 ...tab,
                 configuration: {
@@ -469,7 +505,7 @@ export function FormBuilder({
         kind: "field",
         area: "details",
         fieldId: id,
-        tabId: activeTab.id,
+        tabId: targetDetailsTab.id,
       });
       return;
     }
@@ -478,7 +514,11 @@ export function FormBuilder({
     let targetSectionId: string | undefined;
     let targetTabId: string | undefined;
 
-    if (selection.kind === "section") {
+    if (explicitTarget && (explicitTarget.area === "header" || explicitTarget.area === "tab")) {
+      targetArea = explicitTarget.area;
+      targetSectionId = explicitTarget.sectionId;
+      targetTabId = explicitTarget.tabId;
+    } else if (selection.kind === "section") {
       targetArea = selection.area;
       targetSectionId = selection.sectionId;
       targetTabId = selection.tabId;
@@ -518,13 +558,24 @@ export function FormBuilder({
       schema,
       targetArea,
       targetSectionId,
-      (section) => ({
-        ...section,
-        fields: [
-          ...section.fields,
-          createField(type, id, key, section.fields.length),
-        ],
-      }),
+      (section) => {
+        const nextFields = [...section.fields];
+        const newField = createField(type, id, key, section.fields.length);
+        if (explicitTarget?.beforeFieldId) {
+          const insertIdx = nextFields.findIndex((f) => f.id === explicitTarget.beforeFieldId);
+          if (insertIdx >= 0) {
+            nextFields.splice(insertIdx, 0, newField);
+            return {
+              ...section,
+              fields: nextFields.map((f, i) => ({ ...f, order: i + 1 })),
+            };
+          }
+        }
+        return {
+          ...section,
+          fields: [...nextFields, newField],
+        };
+      },
       targetTabId,
     );
     update(next);
@@ -974,6 +1025,7 @@ export function FormBuilder({
   };
 
   const handleSelectModule = async (item: BuilderModuleTab) => {
+    setActiveStage(item === "Workflow" ? "workflow" : "build");
     if (
       item === "Design" ||
       item === "Versions" ||
@@ -1001,6 +1053,107 @@ export function FormBuilder({
     } else {
       setNotice(`${item} belongs to a later implementation phase.`);
     }
+  };
+
+  const handleSelectStage = (stage: BuilderGuidedStage) => {
+    setActiveStage(stage);
+    if (stage === "build") {
+      if (activeModule === "Workflow") {
+        setActiveModule("Design");
+      }
+    } else if (stage === "workflow") {
+      setActiveModule("Workflow");
+    }
+  };
+
+  const readinessReport = useMemo(
+    () =>
+      analyzeFormReadiness(schema, {
+        dataSources: dataSources ? [...dataSources] : undefined,
+        members: organizationMembers ? [...organizationMembers] : undefined,
+      }),
+    [schema, dataSources, organizationMembers],
+  );
+
+  const gridColumns = useMemo(() => {
+    const cols: Array<{
+      tabKey: string;
+      tabLabel: string;
+      colKey: string;
+      colLabel: string;
+      type: string;
+    }> = [];
+    for (const tab of schema.tabs) {
+      if (tab.type === "details") {
+        for (const col of tab.configuration.columns) {
+          cols.push({
+            tabKey: tab.key,
+            tabLabel: tab.title,
+            colKey: col.key,
+            colLabel: col.label,
+            type: col.type,
+          });
+        }
+      }
+    }
+    return cols;
+  }, [schema]);
+
+  const navigateToFix = (diag: ActionableDiagnostic) => {
+    setDiagnosticsOpen(false);
+    if (diag.fixTarget.tabId) {
+      setActiveTabId(diag.fixTarget.tabId);
+    }
+    if (diag.fixTarget.selection) {
+      setSelection(diag.fixTarget.selection);
+    }
+    if (diag.fixTarget.workflowStepId) {
+      setWorkflowFocusStepId(diag.fixTarget.workflowStepId);
+    }
+    setActiveModule(diag.fixTarget.module);
+    setActiveStage(diag.fixTarget.module === "Workflow" ? "workflow" : "build");
+    setNotice(`Jumped to: ${diag.title}`);
+  };
+
+  const handleCreateMissingField = (suggestedKey: string, suggestedLabel: string) => {
+    const targetArea: "header" | "tab" | undefined =
+      selection.kind === "field" && selection.area === "tab"
+        ? "tab"
+        : selection.kind === "section"
+          ? selection.area
+          : schema.header.sections.length > 0
+            ? "header"
+            : undefined;
+    const targetSectionId =
+      selection.kind === "field" || selection.kind === "section"
+        ? selection.sectionId
+        : schema.header.sections[schema.header.sections.length - 1]?.id;
+    const targetTabId =
+      selection.kind === "field" || selection.kind === "section"
+        ? selection.tabId
+        : undefined;
+
+    if (!targetArea || !targetSectionId) return;
+    const id = idFactory.current("field");
+    const uniqueNewKey = allFieldKeys.includes(suggestedKey)
+      ? generateUniqueFieldKey(suggestedLabel, allFieldKeys)
+      : suggestedKey;
+    const created = {
+      ...createField("number", id, uniqueNewKey, 999),
+      label: suggestedLabel,
+    };
+    const next = updateSection(
+      schema,
+      targetArea,
+      targetSectionId,
+      (sec) => ({
+        ...sec,
+        fields: [...sec.fields, created].map((f, i) => ({ ...f, order: i + 1 })),
+      }),
+      targetTabId,
+    );
+    update(next);
+    setNotice(`Added "${suggestedLabel}" (${uniqueNewKey}) so your calculation is valid.`);
   };
 
   const handleCopySchema = async (jsonString: string) => {
@@ -1094,18 +1247,118 @@ export function FormBuilder({
         </div>
       </header>
 
+      <nav className="fb-stage-stepper" aria-label="Guided form creation stages">
+        <div className="fb-stage-steps">
+          <button
+            type="button"
+            className={`fb-stage-btn ${activeStage === "build" ? "is-active" : ""}`}
+            aria-current={activeStage === "build" ? "step" : undefined}
+            onClick={() => handleSelectStage("build")}
+          >
+            <span className="fb-stage-num">1</span>
+            <span className="fb-stage-copy">
+              <strong>Build Form</strong>
+              <small>Sections, fields &amp; calculations</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`fb-stage-btn ${activeStage === "workflow" ? "is-active" : ""}`}
+            aria-current={activeStage === "workflow" ? "step" : undefined}
+            onClick={() => handleSelectStage("workflow")}
+          >
+            <span className="fb-stage-num">2</span>
+            <span className="fb-stage-copy">
+              <strong>Configure Workflow</strong>
+              <small>Approvers &amp; routing</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`fb-stage-btn ${activeStage === "publish" ? "is-active" : ""}`}
+            aria-current={activeStage === "publish" ? "step" : undefined}
+            onClick={() => handleSelectStage("publish")}
+          >
+            <span className="fb-stage-num">3</span>
+            <span className="fb-stage-copy">
+              <strong>Publish &amp; Share</strong>
+              <small>Check readiness &amp; share link</small>
+            </span>
+          </button>
+        </div>
+
+        <div className="fb-stage-status-wrap">
+          <button
+            type="button"
+            className={`fb-validation-pill ${
+              readinessReport.errors.length > 0 ? "is-error" : "is-valid"
+            }`}
+            aria-expanded={diagnosticsOpen}
+            onClick={() => setDiagnosticsOpen((prev) => !prev)}
+          >
+            {readinessReport.errors.length > 0
+              ? `! ${readinessReport.errors.length} issue${readinessReport.errors.length === 1 ? "" : "s"} to fix`
+              : readinessReport.warnings.length > 0
+                ? `✓ Ready · ${readinessReport.warnings.length} tip${readinessReport.warnings.length === 1 ? "" : "s"}`
+                : "✓ Form ready to publish"}
+          </button>
+        </div>
+      </nav>
+
       <nav className="fb-topnav" aria-label="Builder modules">
         {MODULE_TABS.map((item) => (
           <button
             key={item}
             type="button"
-            aria-current={item === activeModule ? "page" : undefined}
+            aria-current={activeStage !== "publish" && item === activeModule ? "page" : undefined}
             onClick={() => void handleSelectModule(item)}
           >
             {item}
           </button>
         ))}
       </nav>
+
+      {diagnosticsOpen && readinessReport.all.length > 0 && (
+        <section
+          className={`fb-diagnostics-tray ${readinessReport.errors.length > 0 ? "has-errors" : ""}`}
+          aria-label="Live validation checks"
+        >
+          <div className="fb-diagnostics-head">
+            <strong>
+              {readinessReport.errors.length > 0
+                ? `${readinessReport.errors.length} item${readinessReport.errors.length === 1 ? "" : "s"} need attention before publishing`
+                : "Suggestions to improve your form"}
+            </strong>
+            <button
+              type="button"
+              className="fb-btn-subtle"
+              onClick={() => setDiagnosticsOpen(false)}
+            >
+              Hide
+            </button>
+          </div>
+          <div className="fb-diagnostics-items">
+            {readinessReport.all.map((diag) => (
+              <div
+                key={diag.id}
+                className={`fb-diagnostic-card ${diag.severity === "error" ? "is-error" : "is-warning"}`}
+              >
+                <div className="fb-diagnostic-copy">
+                  <strong>{diag.title}</strong>
+                  <p>{diag.friendlyMessage}</p>
+                </div>
+                <button
+                  type="button"
+                  className="fb-btn-fix"
+                  onClick={() => navigateToFix(diag)}
+                >
+                  {diag.fixLabel}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {notice && (
         <div className="fb-notice" role="status">
@@ -1125,6 +1378,29 @@ export function FormBuilder({
         </div>
       )}
 
+      {activeStage === "publish" ? (
+        <PublishReadinessPanel
+          schema={schema}
+          report={readinessReport}
+          formId={schema.form.id}
+          publishedVersionNumber={latestPublishedVersion?.version_number}
+          isPublicAccessEnabled={
+            typeof isPublic === "boolean"
+              ? isPublic
+              : Boolean(schema.settings?.publicAccess?.enabled)
+          }
+          saving={saving}
+          publishing={publishing}
+          canPublish={Boolean(onPublish)}
+          onSave={save}
+          onOpenPreview={openPreview}
+          onOpenPublishDialog={openPublishDialog}
+          onOpenShareDialog={() => setShareDialogOpen(true)}
+          onFixIssue={navigateToFix}
+          onNavigateModule={(mod) => void handleSelectModule(mod)}
+        />
+      ) : (
+        <>
       {activeModule === "Design" && (
         <>
           <section
@@ -1143,22 +1419,31 @@ export function FormBuilder({
         </button>
       </section>
 
-      <div className="fb-workspace">
+      <div className={`fb-workspace ${livePreviewSplit ? "with-live-preview" : ""}`}>
         <aside className="fb-palette" aria-label="Component palette">
           <div className="fb-panel-heading">
-            <h2>Components</h2>
-            <p>Add approved schema fields.</p>
+            <h2>Add Fields</h2>
+            <p>Click or drag onto a section.</p>
           </div>
           <div className="fb-field-grid">
             {FIELD_TYPES.map((type) => (
               <button
                 type="button"
                 key={type}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer?.setData("application/x-fb-new-field", type);
+                  event.dataTransfer?.setData("text/plain", type);
+                }}
                 onClick={() => addField(type)}
                 aria-label={`Add ${FIELD_LABELS[type]} field`}
+                title={`${FIELD_DESCRIPTIONS[type]} (${FIELD_EXAMPLES[type]})`}
               >
                 <FieldGlyph type={type} />
-                <span>{FIELD_LABELS[type]}</span>
+                <div className="fb-palette-card-text">
+                  <span>{FIELD_LABELS[type]}</span>
+                  <small>{FIELD_DESCRIPTIONS[type]}</small>
+                </div>
               </button>
             ))}
           </div>
@@ -1179,8 +1464,7 @@ export function FormBuilder({
             </button>
           </div>
           <div className="fb-palette-help">
-            Select a section before adding standard fields. Select a Details tab
-            before adding grid columns.
+            Click a section (or drag a field directly into one) to add questions, totals, or line-item grids.
           </div>
         </aside>
 
@@ -1188,11 +1472,20 @@ export function FormBuilder({
           <div className="fb-canvas-title">
             <div>
               <h2>Form layout</h2>
-              <p>Build the header and configured tabs.</p>
+              <p>Organize header sections, tabs, and fields.</p>
             </div>
-            <button type="button" onClick={openAddTab}>
-              ＋ Add Tab
-            </button>
+            <div className="fb-canvas-toolbar-actions">
+              <button
+                type="button"
+                aria-pressed={livePreviewSplit}
+                onClick={() => setLivePreviewSplit((prev) => !prev)}
+              >
+                {livePreviewSplit ? "Hide Live Preview" : "Live Preview"}
+              </button>
+              <button type="button" onClick={openAddTab}>
+                ＋ Add Tab
+              </button>
+            </div>
           </div>
           <section
             className={`fb-header-card ${selection.kind === "header" ? "is-selected" : ""}`}
@@ -1253,6 +1546,23 @@ export function FormBuilder({
                     onRemove={() => removeSection("header", section.id)}
                     selectedFieldId={
                       selection.kind === "field" ? selection.fieldId : undefined
+                    }
+                    area="header"
+                    onDropNewField={(type, beforeFieldId) =>
+                      addField(type, {
+                        area: "header",
+                        sectionId: section.id,
+                        beforeFieldId,
+                      })
+                    }
+                    onDropMoveField={(source, beforeFieldId) =>
+                      update(
+                        moveFieldBetweenSections(schema, source, {
+                          area: "header",
+                          sectionId: section.id,
+                          beforeFieldId,
+                        }),
+                      )
                     }
                   />
                 ))}
@@ -1325,10 +1635,48 @@ export function FormBuilder({
                   reorderSection("tab", id, direction, activeTab.id)
                 }
                 onRemoveSection={(id) => removeSection("tab", id, activeTab.id)}
+                onDropNewField={(type, sectionId, beforeFieldId) =>
+                  addField(type, {
+                    area: activeTab.type === "details" ? "details" : "tab",
+                    tabId: activeTab.id,
+                    sectionId,
+                    beforeFieldId,
+                  })
+                }
+                onDropMoveField={(source, targetSectionId, beforeFieldId) =>
+                  update(
+                    moveFieldBetweenSections(schema, source, {
+                      area: "tab",
+                      tabId: activeTab.id,
+                      sectionId: targetSectionId,
+                      beforeFieldId,
+                    }),
+                  )
+                }
               />
             )}
           </section>
         </main>
+
+        {livePreviewSplit && (
+          <aside className="fb-live-preview-pane" aria-label="Live form preview">
+            <div className="fb-live-preview-head">
+              <strong>Live Preview</strong>
+              <button
+                type="button"
+                className="fb-btn-subtle"
+                onClick={() => setLivePreviewSplit(false)}
+              >
+                Close
+              </button>
+            </div>
+            <FormRenderer
+              schema={schema}
+              mode="preview"
+              lookupProvider={lookupProvider ?? (async () => [])}
+            />
+          </aside>
+        )}
 
         <aside className="fb-properties" aria-label="Properties panel">
           <div className="fb-panel-heading">
@@ -1370,11 +1718,13 @@ export function FormBuilder({
               details={selection.area === "details"}
               dataSources={dataSources}
               availableFields={allAvailableFields}
+              gridColumns={gridColumns}
               allFieldKeys={allFieldKeys}
               isLocked={isFormLocked}
               onChange={mutateField}
               onMove={reorderField}
               onRemove={removeField}
+              onCreateMissingField={handleCreateMissingField}
             />
           )}
           {selection.kind === "tab" && selectedTab && (
@@ -1406,6 +1756,7 @@ export function FormBuilder({
       schema={schema}
       disabled={publishing || saving}
       organizationMembers={organizationMembers}
+      focusStepId={workflowFocusStepId}
       onChange={(nextSchema) => {
         setSchema(nextSchema);
         onChange?.(nextSchema);
@@ -1552,6 +1903,16 @@ export function FormBuilder({
                     >
                       View Schema
                     </button>
+                    {onExportVersion && (
+                      <button
+                        type="button"
+                        className="fb-btn-schema"
+                        onClick={() => void onExportVersion(v)}
+                        title={`Export Version ${v.version_number} JSON`}
+                      >
+                        Export JSON
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1561,6 +1922,8 @@ export function FormBuilder({
       )}
     </div>
   )}
+      </>
+      )}
 
       {addTabOpen && (
         <div
@@ -1606,15 +1969,7 @@ export function FormBuilder({
                     onClick={() => setTabDraft({ ...tabDraft, type })}
                   >
                     <strong>{TAB_LABELS[type]}</strong>
-                    <span>
-                      {type === "form"
-                        ? "Standard fields"
-                        : type === "details"
-                          ? "Repeating rows"
-                          : type === "notes"
-                            ? "Append-only history"
-                            : "File collection"}
-                    </span>
+                    <span>{TAB_DESCRIPTIONS[type]}</span>
                   </button>
                 ))}
               </div>
@@ -1886,22 +2241,73 @@ function SectionCard({
   section,
   selected,
   selectedFieldId,
+  area = "header",
+  tabId,
   onSelect,
   onFieldSelect,
   onMove,
   onRemove,
+  onDropNewField,
+  onDropMoveField,
 }: {
   section: HeaderSectionDefinition | FormSectionDefinition;
   selected: boolean;
   selectedFieldId?: string;
+  area?: "header" | "tab";
+  tabId?: string;
   onSelect: () => void;
   onFieldSelect: (id: string) => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
+  onDropNewField?: (type: FieldType, beforeFieldId?: string) => void;
+  onDropMoveField?: (
+    source: { area: "header" | "tab"; tabId?: string; sectionId: string; fieldId: string },
+    beforeFieldId?: string,
+  ) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDropOnSection = (event: React.DragEvent, beforeFieldId?: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOver(false);
+
+    const movePayload = event.dataTransfer?.getData("application/x-fb-move-field");
+    if (movePayload && onDropMoveField) {
+      try {
+        const parsed = JSON.parse(movePayload) as {
+          area: "header" | "tab";
+          tabId?: string;
+          sectionId: string;
+          fieldId: string;
+        };
+        if (parsed.fieldId && parsed.sectionId) {
+          onDropMoveField(parsed, beforeFieldId);
+          return;
+        }
+      } catch {
+        // ignore invalid drag payload
+      }
+    }
+
+    const droppedType = (
+      event.dataTransfer?.getData("application/x-fb-new-field") ||
+      event.dataTransfer?.getData("text/plain")
+    ) as FieldType | "";
+    if (droppedType && FIELD_TYPES.includes(droppedType as FieldType) && onDropNewField) {
+      onDropNewField(droppedType as FieldType, beforeFieldId);
+    }
+  };
+
   return (
     <article
-      className={`fb-section-card ${selected ? "is-selected" : ""}`}
+      className={`fb-section-card ${selected ? "is-selected" : ""} ${dragOver ? "is-drag-over" : ""}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(event) => handleDropOnSection(event)}
       onClick={(event) => {
         event.stopPropagation();
         onSelect();
@@ -1934,13 +2340,28 @@ function SectionCard({
       <div className="fb-field-list">
         {section.fields.length === 0 ? (
           <span className="fb-inline-empty">
-            Select this section, then add fields.
+            Select this section, then add or drop fields here.
           </span>
         ) : (
           section.fields.map((field) => (
             <button
               type="button"
               key={field.id}
+              draggable
+              onDragStart={(event) => {
+                event.stopPropagation();
+                event.dataTransfer?.setData(
+                  "application/x-fb-move-field",
+                  JSON.stringify({
+                    area,
+                    tabId,
+                    sectionId: section.id,
+                    fieldId: field.id,
+                  }),
+                );
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDropOnSection(event, field.id)}
               className={selectedFieldId === field.id ? "is-selected" : ""}
               onClick={(event) => {
                 event.stopPropagation();
@@ -1973,6 +2394,8 @@ function ActiveTabCanvas({
   onAddSection,
   onMoveSection,
   onRemoveSection,
+  onDropNewField,
+  onDropMoveField,
 }: {
   tab: FormTabUnion;
   selection: BuilderSelection;
@@ -1982,6 +2405,12 @@ function ActiveTabCanvas({
   onAddSection: () => void;
   onMoveSection: (id: string, direction: -1 | 1) => void;
   onRemoveSection: (id: string) => void;
+  onDropNewField?: (type: FieldType, sectionId?: string, beforeFieldId?: string) => void;
+  onDropMoveField?: (
+    source: { area: "header" | "tab"; tabId?: string; sectionId: string; fieldId: string },
+    targetSectionId: string,
+    beforeFieldId?: string,
+  ) => void;
 }) {
   if (tab.type === "form")
     return (
@@ -2011,6 +2440,8 @@ function ActiveTabCanvas({
               <SectionCard
                 key={section.id}
                 section={section}
+                area="tab"
+                tabId={tab.id}
                 selected={
                   selection.kind === "section" &&
                   selection.sectionId === section.id
@@ -2022,6 +2453,12 @@ function ActiveTabCanvas({
                 onFieldSelect={(fieldId) => onSelectField(fieldId, section.id)}
                 onMove={(direction) => onMoveSection(section.id, direction)}
                 onRemove={() => onRemoveSection(section.id)}
+                onDropNewField={(type, beforeFieldId) =>
+                  onDropNewField?.(type, section.id, beforeFieldId)
+                }
+                onDropMoveField={(source, beforeFieldId) =>
+                  onDropMoveField?.(source, section.id, beforeFieldId)
+                }
               />
             ))}
           </div>
@@ -2604,344 +3041,24 @@ function DropdownOptionsEditor({
   );
 }
 
-function CalculatedFieldEditor({
-  field,
-  availableFields,
-  onChange,
-}: {
-  field: FieldDefinition | DetailsColumnDefinition;
-  availableFields?: Array<{ key: string; label: string; type: string }>;
-  onChange: (
-    changes: Partial<FieldDefinition & DetailsColumnDefinition>,
-  ) => void;
-}) {
-  const config: CalculationConfig =
-    (field as { calculationConfig?: CalculationConfig }).calculationConfig ??
-    ({} as CalculationConfig);
-  const isCustomFormula =
-    config.operation === "custom" || Boolean(config.formula);
-
-  const [mode, setMode] = useState<"predefined" | "custom">(
-    isCustomFormula ? "custom" : "predefined",
-  );
-  const [sampleValues, setSampleValues] = useState<Record<string, string>>({});
-
-  const formula = config.formula ?? "";
-
-  const parseResult = useMemo(() => {
-    if (!formula.trim()) return null;
-    return parseFormula(formula);
-  }, [formula]);
-
-  const referencedFields = useMemo(() => {
-    if (!formula.trim()) return [];
-    return extractFormulaFieldReferences(formula);
-  }, [formula]);
-
-  const liveEvaluation = useMemo(() => {
-    if (!formula.trim() || !parseResult?.ast) return null;
-    const numericInputs: Record<string, unknown> = {};
-    for (const ref of referencedFields) {
-      numericInputs[ref] = sampleValues[ref] ?? "100";
-    }
-    return evaluateFormula(parseResult.ast, numericInputs, {
-      precision: config.precision,
-    });
-  }, [formula, parseResult, referencedFields, sampleValues, config.precision]);
-
-  const handleModeChange = (newMode: "predefined" | "custom") => {
-    setMode(newMode);
-    if (newMode === "custom") {
-      onChange({
-        calculationConfig: {
-          ...config,
-          operation: "custom",
-          formula: config.formula || "",
-          operands: referencedFields,
-        },
-      } as Partial<FieldDefinition & DetailsColumnDefinition>);
-    } else {
-      onChange({
-        calculationConfig: {
-          ...config,
-          operation:
-            config.operation === "custom" ? "sum" : config.operation || "sum",
-          formula: undefined,
-        },
-      } as Partial<FieldDefinition & DetailsColumnDefinition>);
-    }
-  };
-
-  const handleFormulaChange = (newFormula: string) => {
-    const refs = extractFormulaFieldReferences(newFormula);
-    onChange({
-      calculationConfig: {
-        ...config,
-        operation: "custom",
-        formula: newFormula,
-        operands: refs,
-      },
-    } as Partial<FieldDefinition & DetailsColumnDefinition>);
-  };
-
-  const insertText = (str: string) => {
-    const next = formula ? `${formula} ${str}` : str;
-    handleFormulaChange(next);
-  };
-
-  const numericCandidates = (availableFields ?? []).filter(
-    (f) =>
-      f.key !== field.key &&
-      (f.type === "number" || f.type === "currency" || f.type === "calculated"),
-  );
-
-  return (
-    <div className="fb-formula-builder">
-      <div className="fb-formula-mode-toggle">
-        <button
-          type="button"
-          className={`fb-formula-mode-btn ${mode === "predefined" ? "active" : ""}`}
-          onClick={() => handleModeChange("predefined")}
-        >
-          Predefined Operation
-        </button>
-        <button
-          type="button"
-          className={`fb-formula-mode-btn ${mode === "custom" ? "active" : ""}`}
-          onClick={() => handleModeChange("custom")}
-        >
-          Custom Formula
-        </button>
-      </div>
-
-      {mode === "predefined" ? (
-        <>
-          <label>
-            Operation
-            <select
-              aria-label="Calculation operation"
-              value={config.operation ?? "sum"}
-              onChange={(event) =>
-                onChange({
-                  calculationConfig: {
-                    ...config,
-                    operation: event.target.value as NonNullable<
-                      CalculationConfig["operation"]
-                    >,
-                  },
-                } as Partial<FieldDefinition & DetailsColumnDefinition>)
-              }
-            >
-              {[
-                "add",
-                "subtract",
-                "multiply",
-                "divide",
-                "sum",
-                "min",
-                "max",
-                "count",
-              ].map((operation) => (
-                <option key={operation}>{operation}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Operand field keys
-            <input
-              aria-label="Calculation operands"
-              value={config.operands?.join(", ") ?? ""}
-              onChange={(event) =>
-                onChange({
-                  calculationConfig: {
-                    ...config,
-                    operation: config.operation || "sum",
-                    operands: event.target.value
-                      .split(",")
-                      .map((value) => value.trim())
-                      .filter(Boolean),
-                  },
-                } as Partial<FieldDefinition & DetailsColumnDefinition>)
-              }
-            />
-          </label>
-          <p className="fb-help">
-            Evaluates aggregate or binary operations across specified operands.
-          </p>
-        </>
-      ) : (
-        <>
-          <label>
-            Formula Expression
-            <input
-              aria-label="Calculation formula"
-              placeholder="(principal_amount * interest_rate * tenor_days) / 36500"
-              value={formula}
-              onChange={(e) => handleFormulaChange(e.target.value)}
-            />
-          </label>
-
-          {numericCandidates.length > 0 && (
-            <div>
-              <span style={{ fontSize: "11px", color: "var(--fb-muted)", fontWeight: 500 }}>
-                Insert Field:
-              </span>
-              <div className="fb-formula-chips">
-                {numericCandidates.map((cand) => (
-                  <button
-                    key={cand.key}
-                    type="button"
-                    className="fb-formula-chip-btn"
-                    title={`Insert ${cand.label} (${cand.key})`}
-                    onClick={() => insertText(cand.key)}
-                  >
-                    <span>+</span> {cand.label} <small>({cand.key})</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <span style={{ fontSize: "11px", color: "var(--fb-muted)", fontWeight: 500 }}>
-              Operators:
-            </span>
-            <div className="fb-formula-operators">
-              {["+", "-", "*", "/", "(", ")"].map((op) => (
-                <button
-                  key={op}
-                  type="button"
-                  className="fb-operator-btn"
-                  onClick={() => insertText(op)}
-                >
-                  {op}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="fb-operator-btn"
-                style={{ width: "auto", padding: "0 8px", fontSize: "11px" }}
-                onClick={() => handleFormulaChange("")}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {parseResult && (
-            <div
-              className={`fb-formula-status ${parseResult.ast && parseResult.errors.length === 0 ? "valid" : "invalid"}`}
-            >
-              {parseResult.ast && parseResult.errors.length === 0 ? (
-                <div>
-                  <strong>✓ Valid syntax.</strong>
-                  {referencedFields.length > 0 && (
-                    <span style={{ display: "block", fontSize: "11px", marginTop: "2px" }}>
-                      Referenced fields: {referencedFields.join(", ")}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <strong>✕ Syntax error:</strong> {parseResult.errors.join("; ")}
-                </div>
-              )}
-            </div>
-          )}
-
-          {referencedFields.length > 0 && (
-            <div className="fb-formula-tester">
-              <span style={{ fontSize: "12px", fontWeight: 600 }}>
-                Test Formula with Sample Values:
-              </span>
-              <div className="fb-tester-grid">
-                {referencedFields.map((ref) => (
-                  <div key={ref} className="fb-tester-item">
-                    <label>{ref}</label>
-                    <input
-                      type="number"
-                      placeholder="100"
-                      value={sampleValues[ref] ?? ""}
-                      onChange={(e) =>
-                        setSampleValues({
-                          ...sampleValues,
-                          [ref]: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="fb-tester-result">
-                <span>Evaluated Preview:</span>
-                <span
-                  style={{
-                    color: "var(--fb-green)",
-                    fontFamily: "monospace",
-                    fontSize: "14px",
-                  }}
-                >
-                  {liveEvaluation?.value !== null && liveEvaluation?.value !== undefined
-                    ? liveEvaluation.value
-                    : "—"}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <input
-            aria-label="Calculation operands"
-            style={{ display: "none" }}
-            readOnly
-            value={referencedFields.join(", ")}
-          />
-        </>
-      )}
-
-      <label style={{ marginTop: "8px" }}>
-        Decimal Precision
-        <select
-          aria-label="Decimal Precision"
-          value={config.precision !== undefined ? String(config.precision) : "default"}
-          onChange={(event) => {
-            const val =
-              event.target.value === "default"
-                ? undefined
-                : parseInt(event.target.value, 10);
-            onChange({
-              calculationConfig: {
-                ...config,
-                precision: val,
-              },
-            } as Partial<FieldDefinition & DetailsColumnDefinition>);
-          }}
-        >
-          <option value="default">Default (4 decimals)</option>
-          <option value="0">0 (Integer)</option>
-          <option value="2">2 (Currency / standard)</option>
-          <option value="4">4 (High precision / 4 decimals)</option>
-          <option value="6">6 (Micro precision / 6 decimals)</option>
-        </select>
-      </label>
-    </div>
-  );
-}
-
 function FieldProperties({
   field,
   details,
   dataSources,
   availableFields,
+  gridColumns = [],
   allFieldKeys = [],
   isLocked = false,
   onChange,
   onMove,
   onRemove,
+  onCreateMissingField,
 }: {
   field: FieldDefinition | DetailsColumnDefinition;
   details: boolean;
   dataSources?: readonly BuilderDataSourceOption[];
   availableFields?: Array<{ key: string; label: string; type: string }>;
+  gridColumns?: Array<{ tabKey: string; tabLabel: string; colKey: string; colLabel: string; type: string }>;
   allFieldKeys?: string[];
   isLocked?: boolean;
   onChange: (
@@ -2949,6 +3066,7 @@ function FieldProperties({
   ) => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
+  onCreateMissingField?: (suggestedKey: string, suggestedLabel: string) => void;
 }) {
   const [labelDraft, setLabelDraft] = useState(field.label);
   const [keyDraft, setKeyDraft] = useState(field.key);
@@ -3016,13 +3134,18 @@ function FieldProperties({
       : undefined;
   return (
     <div className="fb-property-form">
-      <h3>{details ? "Grid column" : "Field properties"}</h3>
+      <h3>{details ? "Table column settings" : "Field settings"}</h3>
       <div className="fb-readonly-type">
         <FieldGlyph type={field.type} />
-        <span>{FIELD_LABELS[field.type]}</span>
+        <div>
+          <span>{FIELD_LABELS[field.type]}</span>
+          <small className="fb-help-inline" style={{ display: "block" }}>
+            {FIELD_DESCRIPTIONS[field.type]}
+          </small>
+        </div>
       </div>
       <label>
-        Label
+        Field Label
         <input
           aria-label="Field label"
           value={labelDraft}
@@ -3033,14 +3156,248 @@ function FieldProperties({
           onBlur={handleLabelBlur}
         />
       </label>
+      {!details && "helpText" in field && (
+        <label>
+          Description / Help Text
+          <input
+            aria-label="Field description"
+            placeholder="Optional instructions shown below this field"
+            value={field.helpText ?? ""}
+            onChange={(event) => onChange({ helpText: event.target.value })}
+          />
+        </label>
+      )}
+      {!details && "placeholder" in field && (
+        <label>
+          Placeholder Text
+          <input
+            aria-label="Field placeholder"
+            placeholder={FIELD_EXAMPLES[field.type]}
+            value={field.placeholder ?? ""}
+            onChange={(event) => onChange({ placeholder: event.target.value })}
+          />
+        </label>
+      )}
+      {!details && "width" in field && (
+        <label>
+          Column Width
+          <select
+            aria-label="Field width"
+            value={field.width ?? "full"}
+            onChange={(event) =>
+              onChange({
+                width: event.target.value as FieldDefinition["width"],
+              })
+            }
+          >
+            {WIDTHS.map((width) => (
+              <option key={width} value={width}>
+                {width === "full"
+                  ? "full (Whole row)"
+                  : width === "half"
+                    ? "half (2 per row)"
+                    : width === "third"
+                      ? "third (3 per row)"
+                      : "quarter (4 per row)"}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <Toggle
+        label="Must Be Completed"
+        ariaLabel="Required"
+        hint="People must fill this in before submitting"
+        checked={field.required ?? false}
+        onChange={(required) => onChange({ required })}
+      />
       <div className="fb-key-status" style={{ margin: "2px 0 10px", fontSize: "11px", color: "var(--fb-muted, #5f6f86)" }}>
-        <span>Field Key: <code>{field.key}</code></span>
+        <span>Internal Field Name: <code>{field.key}</code></span>
         {isDefaultPlaceholderKey(field.key) && (
           <span style={{ marginLeft: "6px", fontStyle: "italic", color: "var(--fb-green, #08783e)" }}>
-            (auto-derives from label)
+            (auto-created from label)
           </span>
         )}
       </div>
+
+      <details className="fb-advanced-settings">
+        <summary className="fb-advanced-summary">More Options (Display &amp; Limits)</summary>
+        <div className="fb-advanced-body">
+          <Toggle
+            label="Cannot Be Edited"
+            ariaLabel="Read only"
+            hint="Displays the value as locked / read-only"
+            checked={field.readOnly ?? false}
+            onChange={(readOnly) => onChange({ readOnly })}
+          />
+          {!details && "hidden" in field && (
+            <Toggle
+              label="Hidden by Default"
+              ariaLabel="Hidden"
+              hint="Only shown when revealed by a rule"
+              checked={field.hidden ?? false}
+              onChange={(hidden) => onChange({ hidden })}
+            />
+          )}
+          {field.type === "currency" && !details && (
+            <label>
+              Currency Code
+              <input
+                aria-label="Currency code"
+                value={
+                  (field as Extract<FieldDefinition, { type: "currency" }>)
+                    .currencyCode ?? ""
+                }
+                onChange={(event) =>
+                  onChange({
+                    currencyCode: event.target.value.toUpperCase(),
+                  } as Partial<FieldDefinition>)
+                }
+              />
+            </label>
+          )}
+          {!details && (field.type === "text" || field.type === "textarea") && (
+            <>
+              <label>
+                Minimum Length
+                <input
+                  aria-label="Minimum length"
+                  type="number"
+                  min={0}
+                  value={
+                    "minLength" in (validation ?? {})
+                      ? ((validation as { minLength?: number }).minLength ?? "")
+                      : ""
+                  }
+                  onChange={(event) =>
+                    onChange({
+                      validation: {
+                        ...validation,
+                        minLength: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                Maximum Length
+                <input
+                  aria-label="Maximum length"
+                  type="number"
+                  min={1}
+                  value={
+                    "maxLength" in (validation ?? {})
+                      ? ((validation as { maxLength?: number }).maxLength ?? "")
+                      : ""
+                  }
+                  onChange={(event) =>
+                    onChange({
+                      validation: {
+                        ...validation,
+                        maxLength: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+            </>
+          )}
+          {!details && (field.type === "number" || field.type === "currency") && (
+            <>
+              <label>
+                Minimum Value
+                <input
+                  aria-label="Minimum value"
+                  type="number"
+                  value={
+                    "min" in (validation ?? {})
+                      ? ((validation as { min?: number }).min ?? "")
+                      : ""
+                  }
+                  onChange={(event) =>
+                    onChange({
+                      validation: {
+                        ...validation,
+                        min: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                Maximum Value
+                <input
+                  aria-label="Maximum value"
+                  type="number"
+                  value={
+                    "max" in (validation ?? {})
+                      ? ((validation as { max?: number }).max ?? "")
+                      : ""
+                  }
+                  onChange={(event) =>
+                    onChange({
+                      validation: {
+                        ...validation,
+                        max: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+            </>
+          )}
+          {!details && field.type === "file" && (
+            <>
+              <label>
+                Allowed File Types
+                <input
+                  aria-label="Field allowed extensions"
+                  placeholder="pdf, png, jpg"
+                  value={fileValidation?.allowedFileExtensions?.join(", ") ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      validation: {
+                        ...validation,
+                        allowedFileExtensions: event.target.value
+                          .split(",")
+                          .map((value) => value.trim().replace(/^\./, ""))
+                          .filter(Boolean),
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+              <label>
+                Maximum File Size (MB)
+                <input
+                  aria-label="Field maximum file size"
+                  type="number"
+                  min={1}
+                  value={fileValidation?.maxFileSizeMb ?? ""}
+                  onChange={(event) =>
+                    onChange({
+                      validation: {
+                        ...validation,
+                        maxFileSizeMb: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                      },
+                    } as Partial<FieldDefinition>)
+                  }
+                />
+              </label>
+            </>
+          )}
+        </div>
+      </details>
 
       <details className="fb-advanced-settings">
         <summary className="fb-advanced-summary">Advanced / Developer Settings</summary>
@@ -3057,7 +3414,7 @@ function FieldProperties({
           ) : (
             <>
               <label>
-                Field Key (Developer Override)
+                Internal Field Name (Advanced Override)
                 <input
                   aria-label="Field key"
                   value={keyDraft}
@@ -3080,74 +3437,12 @@ function FieldProperties({
                 </div>
               )}
               <p className="fb-help" style={{ margin: "4px 0 0" }}>
-                Auto-generated from label. You do not need to type or edit this unless you need a custom developer key.
+                Automatically generated from the label. Only change this if integrating with an external API or formula.
               </p>
             </>
           )}
         </div>
       </details>
-      <Toggle
-        label="Required"
-        checked={field.required ?? false}
-        onChange={(required) => onChange({ required })}
-      />
-      <Toggle
-        label="Read only"
-        checked={field.readOnly ?? false}
-        onChange={(readOnly) => onChange({ readOnly })}
-      />
-      {!details && "hidden" in field && (
-        <Toggle
-          label="Hidden"
-          checked={field.hidden ?? false}
-          onChange={(hidden) => onChange({ hidden })}
-        />
-      )}
-      {!details && "placeholder" in field && (
-        <label>
-          Placeholder
-          <input
-            aria-label="Field placeholder"
-            value={field.placeholder ?? ""}
-            onChange={(event) => onChange({ placeholder: event.target.value })}
-          />
-        </label>
-      )}
-      {!details && "width" in field && (
-        <label>
-          Width
-          <select
-            aria-label="Field width"
-            value={field.width ?? "full"}
-            onChange={(event) =>
-              onChange({
-                width: event.target.value as FieldDefinition["width"],
-              })
-            }
-          >
-            {WIDTHS.map((width) => (
-              <option key={width}>{width}</option>
-            ))}
-          </select>
-        </label>
-      )}
-      {field.type === "currency" && !details && (
-        <label>
-          Currency code
-          <input
-            aria-label="Currency code"
-            value={
-              (field as Extract<FieldDefinition, { type: "currency" }>)
-                .currencyCode ?? ""
-            }
-            onChange={(event) =>
-              onChange({
-                currencyCode: event.target.value.toUpperCase(),
-              } as Partial<FieldDefinition>)
-            }
-          />
-        </label>
-      )}
       {field.type === "dropdown" && (
         <DropdownOptionsEditor
           options={options}
@@ -3416,150 +3711,13 @@ function FieldProperties({
           )}
         </>
       )}
-      {!details && (field.type === "text" || field.type === "textarea") && (
-        <>
-          <label>
-            Minimum length
-            <input
-              aria-label="Minimum length"
-              type="number"
-              min={0}
-              value={
-                "minLength" in (validation ?? {})
-                  ? ((validation as { minLength?: number }).minLength ?? "")
-                  : ""
-              }
-              onChange={(event) =>
-                onChange({
-                  validation: {
-                    ...validation,
-                    minLength: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          <label>
-            Maximum length
-            <input
-              aria-label="Maximum length"
-              type="number"
-              min={1}
-              value={
-                "maxLength" in (validation ?? {})
-                  ? ((validation as { maxLength?: number }).maxLength ?? "")
-                  : ""
-              }
-              onChange={(event) =>
-                onChange({
-                  validation: {
-                    ...validation,
-                    maxLength: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-        </>
-      )}
-      {!details && (field.type === "number" || field.type === "currency") && (
-        <>
-          <label>
-            Minimum value
-            <input
-              aria-label="Minimum value"
-              type="number"
-              value={
-                "min" in (validation ?? {})
-                  ? ((validation as { min?: number }).min ?? "")
-                  : ""
-              }
-              onChange={(event) =>
-                onChange({
-                  validation: {
-                    ...validation,
-                    min: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          <label>
-            Maximum value
-            <input
-              aria-label="Maximum value"
-              type="number"
-              value={
-                "max" in (validation ?? {})
-                  ? ((validation as { max?: number }).max ?? "")
-                  : ""
-              }
-              onChange={(event) =>
-                onChange({
-                  validation: {
-                    ...validation,
-                    max: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-        </>
-      )}
-      {!details && field.type === "file" && (
-        <>
-          <label>
-            Allowed file extensions
-            <input
-              aria-label="Field allowed extensions"
-              value={fileValidation?.allowedFileExtensions?.join(", ") ?? ""}
-              onChange={(event) =>
-                onChange({
-                  validation: {
-                    ...validation,
-                    allowedFileExtensions: event.target.value
-                      .split(",")
-                      .map((value) => value.trim().replace(/^\./, ""))
-                      .filter(Boolean),
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-          <label>
-            Maximum file size (MB)
-            <input
-              aria-label="Field maximum file size"
-              type="number"
-              min={1}
-              value={fileValidation?.maxFileSizeMb ?? ""}
-              onChange={(event) =>
-                onChange({
-                  validation: {
-                    ...validation,
-                    maxFileSizeMb: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  },
-                } as Partial<FieldDefinition>)
-              }
-            />
-          </label>
-        </>
-      )}
       {field.type === "calculated" && (
-        <CalculatedFieldEditor
+        <VisualCalculationBuilder
           field={field}
           availableFields={availableFields}
+          gridColumns={gridColumns}
           onChange={onChange}
+          onCreateMissingField={onCreateMissingField}
         />
       )}
       <div className="fb-inline-actions">

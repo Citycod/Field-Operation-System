@@ -14,8 +14,10 @@ const ALLOWED_STATUSES = new Set([
   'draft',
   'submitted',
   'pending_approval',
+  'returned',
   'approved',
   'rejected',
+  'completed',
   'archived',
 ]);
 
@@ -230,5 +232,131 @@ export class SupabaseSubmissionRepository implements SubmissionRepository {
       pageSize,
       totalPages,
     };
+  }
+
+  async createAuthenticatedSubmission(params: {
+    organizationId: string;
+    formId: string;
+    formVersionId: string;
+    referenceNumber?: string | null;
+    status: string;
+    dataJsonb: Record<string, unknown>;
+    detailRows?: Array<{
+      tabId: string;
+      rowOrder: number;
+      dataJsonb: Record<string, unknown>;
+    }>;
+    workflowStart?: {
+      workflowId: string | null;
+      stepId: string;
+      stageName: string;
+      assigneeIndex: number;
+      assignedApproverId: string | null;
+      assignedRoleKey: string | null;
+    } | null;
+  }): Promise<FormSubmissionEntity> {
+    const supabase = this.client();
+    const detailRowsPayload = (params.detailRows ?? []).map((row) => ({
+      tab_id: row.tabId,
+      row_order: row.rowOrder,
+      data_jsonb: row.dataJsonb,
+    }));
+
+    const { data, error } = await (supabase as any).rpc(
+      'create_authenticated_submission',
+      {
+        p_organization_id: params.organizationId,
+        p_form_id: params.formId,
+        p_form_version_id: params.formVersionId,
+        p_reference_number: params.referenceNumber ?? null,
+        p_status: params.status,
+        p_data_jsonb: params.dataJsonb,
+        p_detail_rows: detailRowsPayload,
+        p_workflow_id: params.workflowStart?.workflowId ?? null,
+        p_first_step_id: params.workflowStart?.stepId ?? null,
+        p_first_stage_name: params.workflowStart?.stageName ?? null,
+        p_first_assignee_index: params.workflowStart?.assigneeIndex ?? 0,
+        p_first_assigned_approver_id:
+          params.workflowStart?.assignedApproverId ?? null,
+        p_first_assigned_role_key:
+          params.workflowStart?.assignedRoleKey ?? null,
+      },
+    );
+
+    if (error || !data?.submission_id) {
+      throw new Error(
+        error?.message || 'Failed to create authenticated submission.',
+      );
+    }
+
+    const created = await this.getSubmissionById(
+      data.submission_id,
+      params.organizationId,
+    );
+    if (!created) {
+      throw new Error('Submission was created but could not be reloaded.');
+    }
+    return created;
+  }
+
+  async resubmitReturnedSubmission(params: {
+    organizationId: string;
+    submissionId: string;
+    status: string;
+    dataJsonb: Record<string, unknown>;
+    detailRows?: Array<{
+      tabId: string;
+      rowOrder: number;
+      dataJsonb: Record<string, unknown>;
+    }>;
+    workflowStart?: {
+      workflowId: string | null;
+      stepId: string;
+      stageName: string;
+      assigneeIndex: number;
+      assignedApproverId: string | null;
+      assignedRoleKey: string | null;
+    } | null;
+  }): Promise<FormSubmissionEntity> {
+    const supabase = this.client();
+    const detailRowsPayload = (params.detailRows ?? []).map((row) => ({
+      tab_id: row.tabId,
+      row_order: row.rowOrder,
+      data_jsonb: row.dataJsonb,
+    }));
+
+    const { data, error } = await (supabase as any).rpc(
+      'resubmit_returned_submission',
+      {
+        p_organization_id: params.organizationId,
+        p_submission_id: params.submissionId,
+        p_status: params.status,
+        p_data_jsonb: params.dataJsonb,
+        p_detail_rows: detailRowsPayload,
+        p_workflow_id: params.workflowStart?.workflowId ?? null,
+        p_first_step_id: params.workflowStart?.stepId ?? null,
+        p_first_stage_name: params.workflowStart?.stageName ?? null,
+        p_first_assignee_index: params.workflowStart?.assigneeIndex ?? 0,
+        p_first_assigned_approver_id:
+          params.workflowStart?.assignedApproverId ?? null,
+        p_first_assigned_role_key:
+          params.workflowStart?.assignedRoleKey ?? null,
+      },
+    );
+
+    if (error || !data?.submission_id) {
+      throw new Error(
+        error?.message || 'Failed to resubmit returned submission.',
+      );
+    }
+
+    const updated = await this.getSubmissionById(
+      data.submission_id,
+      params.organizationId,
+    );
+    if (!updated) {
+      throw new Error('Submission was updated but could not be reloaded.');
+    }
+    return updated;
   }
 }

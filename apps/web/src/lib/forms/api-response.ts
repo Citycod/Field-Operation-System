@@ -19,6 +19,25 @@ export function formApiError(error: unknown) {
       },
       { status: 403 },
     );
+  if (message.includes("IMPORT_TOO_LARGE"))
+    return NextResponse.json(
+      { error: message, code: "PAYLOAD_TOO_LARGE" },
+      { status: 413 },
+    );
+  if (
+    message.includes("MALFORMED_JSON") ||
+    message.includes("INVALID_IMPORT_PAYLOAD") ||
+    message.includes("UNSUPPORTED_SCHEMA_VERSION") ||
+    message.includes("UNSUPPORTED_EXPORT_FORMAT") ||
+    message.includes("IMPORT_SCHEMA_INVALID") ||
+    message.includes("IMPORT_BROKEN_REFERENCES") ||
+    message.includes("UNSAFE_EXTERNAL_REFERENCE") ||
+    message.includes("IMPORT_DEPTH_EXCEEDED")
+  )
+    return NextResponse.json(
+      { error: message, code: "IMPORT_VALIDATION_FAILED" },
+      { status: 422 },
+    );
   if (message.includes("not found") || message.includes("not the active draft"))
     return NextResponse.json(
       {
@@ -251,7 +270,29 @@ export function submissionApiError(error: unknown) {
     );
   }
 
-  if (message.includes("not found")) {
+  if (
+    message.includes("APPROVAL_STAGE_ALREADY_DECIDED") ||
+    message.includes("APPROVAL_INSTANCE_NOT_ACTIVE") ||
+    message.includes("SUBMISSION_ALREADY_TERMINAL") ||
+    message.includes("SUBMISSION_NOT_RETURNED")
+  ) {
+    return NextResponse.json(
+      { error: message, code: "CONFLICT" },
+      { status: 409 },
+    );
+  }
+
+  if (
+    message.includes("Submission validation failed") ||
+    message.includes("COMMENT_REQUIRED")
+  ) {
+    return NextResponse.json(
+      { error: message, code: "VALIDATION_FAILED" },
+      { status: 422 },
+    );
+  }
+
+  if (message.includes("not found") || message.includes("NOT_FOUND")) {
     return NextResponse.json(
       { error: message, code: "NOT_FOUND" },
       { status: 404 },
@@ -260,6 +301,63 @@ export function submissionApiError(error: unknown) {
 
   return NextResponse.json(
     { error: message, code: "SUBMISSION_OPERATION_FAILED" },
+    { status: 400 },
+  );
+}
+
+export function approvalApiError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Unexpected approval operation failure";
+
+  if (message === "AUTHENTICATION_REQUIRED" || message.includes("AUTHENTICATION_REQUIRED")) {
+    return NextResponse.json(
+      { error: "Sign in is required.", code: "UNAUTHENTICATED" },
+      { status: 401 },
+    );
+  }
+
+  if (
+    message.startsWith("Unauthorized:") ||
+    message.includes("UNAUTHORIZED") ||
+    message.includes("not assigned") ||
+    message.includes("not permitted") ||
+    message.includes("not authorized")
+  ) {
+    return NextResponse.json(
+      { error: message, code: "FORBIDDEN" },
+      { status: 403 },
+    );
+  }
+
+  if (
+    message.includes("APPROVAL_STAGE_ALREADY_DECIDED") ||
+    message.includes("APPROVAL_INSTANCE_NOT_ACTIVE") ||
+    message.includes("SUBMISSION_ALREADY_TERMINAL")
+  ) {
+    return NextResponse.json(
+      { error: message, code: "CONFLICT" },
+      { status: 409 },
+    );
+  }
+
+  if (message.includes("COMMENT_REQUIRED")) {
+    return NextResponse.json(
+      { error: message, code: "COMMENT_REQUIRED" },
+      { status: 422 },
+    );
+  }
+
+  if (message.includes("not found") || message.includes("NOT_FOUND")) {
+    return NextResponse.json(
+      { error: message, code: "NOT_FOUND" },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json(
+    { error: message, code: "APPROVAL_OPERATION_FAILED" },
     { status: 400 },
   );
 }

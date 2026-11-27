@@ -352,6 +352,27 @@ export default function ProductionFormBuilderPage() {
     }
   }
 
+  async function handleExportVersion(version: FormVersionSummary) {
+    if (!activeOrganizationId) return;
+    const response = await fetch(
+      `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(version.id)}/export?organizationId=${encodeURIComponent(activeOrganizationId)}`,
+    );
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || "Failed to export form version.");
+    }
+    const text = await response.text();
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${data?.form.key || "form"}_v${version.version_number}.form.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-3">
       <nav className="text-xs text-slate-500">
@@ -498,6 +519,14 @@ export default function ProductionFormBuilderPage() {
                           >
                             View
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleExportVersion(v)}
+                            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-100"
+                            title={`Export Version ${v.version_number} JSON`}
+                          >
+                            Export JSON
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -526,6 +555,7 @@ export default function ProductionFormBuilderPage() {
           onPublish={publishDraft}
           versions={versions}
           onLoadVersions={loadVersions}
+          onExportVersion={handleExportVersion}
           isPublic={isFormPublic}
           publicSlug={
             (data.form as any).public_slug ||

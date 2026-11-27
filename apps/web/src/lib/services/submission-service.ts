@@ -9,6 +9,13 @@ import {
   SubmissionSortOrder,
 } from '../repositories/submission-repository';
 import { MembershipRepository } from '../repositories/membership-repository';
+import type { ApprovalRepository } from '../repositories/approval-repository';
+import {
+  planWorkflowStart,
+  summarizeSubmissionApproval,
+  type SubmissionApprovalSummary,
+} from './approval-service';
+import { buildSubmissionsCsv } from '../forms/csv-export';
 import {
   FormSchemaV1,
   evaluateRules,
@@ -17,12 +24,24 @@ import {
   DetailsTabDefinition,
 } from '@field/form-engine';
 
+export interface SubmitFormPayload {
+  fields: Record<string, unknown>;
+  details?: Record<string, Array<{ id: string; values: Record<string, unknown> }>>;
+  notes?: unknown[];
+  documents?: unknown[];
+}
+
 export interface SubmitPublicFormResult {
   submissionId: string;
   referenceNumber: string | null;
   status: string;
   successTitle: string;
   successMessage: string;
+}
+
+export interface SubmitAuthenticatedFormResult {
+  submission: FormSubmissionEntity;
+  approvalStarted: boolean;
 }
 
 export interface AuthenticatedListSubmissionsParams {
@@ -56,6 +75,7 @@ export interface AuthenticatedSubmissionDetailResult {
     notes: unknown[];
     documents: unknown[];
   };
+  approval?: SubmissionApprovalSummary | null;
 }
 
 export class SubmissionService {
@@ -63,6 +83,7 @@ export class SubmissionService {
     private readonly formRepository: FormRepository,
     private readonly submissionRepository: SubmissionRepository,
     private readonly membershipRepository?: MembershipRepository,
+    private readonly approvalRepository?: ApprovalRepository,
   ) {}
 
   private async checkMembership(userId: string, organizationId: string) {
@@ -317,14 +338,58 @@ export class SubmissionService {
     return { errors, detailRows, detailsForCalc };
   }
 
+  private prepareAndValidateSubmission(
+    schema: FormSchemaV1,
+    payload: SubmitFormPayload,
+  ) {
+    const allFields = this.collectAllFields(schema);
+    const sanitizedFields = this.sanitizeFields(
+      allFields,
+      payload.fields && typeof payload.fields === 'object' ? payload.fields : {},
+    );
+
+    const {
+      errors: detailErrors,
+      detailRows,
+      detailsForCalc,
+    } = this.validateAndSanitizeDetails(schema, payload.details);
+
+    const fieldErrors = this.validateSubmissionData(schema, sanitizedFields);
+    const allErrors = [...fieldErrors, ...detailErrors];
+    if (allErrors.length > 0) {
+      throw new Error(`Submission validation failed: ${allErrors.join(', ')}`);
+    }
+
+    // Recompute calculated fields strictly server-side from validated values
+    const calcResult = evaluateCalculations(allFields, sanitizedFields, detailsForCalc);
+    for (const [calcKey, calcVal] of Object.entries(calcResult.values)) {
+      if (calcVal !== undefined) {
+        sanitizedFields[calcKey] = calcVal;
+      }
+    }
+
+    const hasNotesTab = (schema.tabs ?? []).some((t) => t.type === 'notes');
+    const sanitizedNotes =
+      hasNotesTab && Array.isArray(payload.notes)
+        ? payload.notes
+            .slice(0, 50)
+            .filter((n): n is Record<string, unknown> => Boolean(n && typeof n === 'object'))
+            .map((n) => ({
+              text: typeof n.text === 'string' ? n.text.slice(0, 2000) : '',
+            }))
+            .filter((n) => n.text.trim().length > 0)
+        : [];
+
+    return {
+      sanitizedFields,
+      detailRows,
+      sanitizedNotes,
+    };
+  }
+
   async submitPublicForm(
     slugOrId: string,
-    payload: {
-      fields: Record<string, unknown>;
-      details?: Record<string, Array<{ id: string; values: Record<string, unknown> }>>;
-      notes?: unknown[];
-      documents?: unknown[];
-    },
+    payload: SubmitFormPayload,
   ): Promise<SubmitPublicFormResult> {
     const publicResult = await this.formRepository.getPublicForm(slugOrId);
     if (!publicResult) {
@@ -350,52 +415,34 @@ export class SubmissionService {
       }
     }
 
-    const allFields = this.collectAllFields(schema);
-    const sanitizedFields = this.sanitizeFields(
-      allFields,
-      payload.fields && typeof payload.fields === 'object' ? payload.fields : {},
-    );
+    const { sanitizedFields, detailRows, sanitizedNotes } =
+      this.prepareAndValidateSubmission(schema, payload);
 
-    const {
-      errors: detailErrors,
-      detailRows,
-      detailsForCalc,
-    } = this.validateAndSanitizeDetails(schema, payload.details);
+    const referenceNumber = this.generateReferenceNumber(schema);
+    const workflowPlan = this.approvalRepository
+      ? planWorkflowStart({
+          schema,
+          fieldValues: sanitizedFields,
+          requesterUserId: null,
+          referenceNumber,
+        })
+      : null;
 
-    // Server-side validation of allowed fields & rules
-    const fieldErrors = this.validateSubmissionData(schema, sanitizedFields);
-    const allErrors = [...fieldErrors, ...detailErrors];
-    if (allErrors.length > 0) {
-      throw new Error(`Submission validation failed: ${allErrors.join(', ')}`);
-    }
-
-    // Recompute calculated fields strictly server-side from validated values
-    const calcResult = evaluateCalculations(allFields, sanitizedFields, detailsForCalc);
-    for (const [calcKey, calcVal] of Object.entries(calcResult.values)) {
-      if (calcVal !== undefined) {
-        sanitizedFields[calcKey] = calcVal;
+    if (workflowPlan) {
+      for (const [k, v] of Object.entries(workflowPlan.fieldUpdates)) {
+        sanitizedFields[k] = v;
       }
     }
 
-    const referenceNumber = this.generateReferenceNumber(schema);
-    const hasNotesTab = (schema.tabs ?? []).some((t) => t.type === 'notes');
-    const sanitizedNotes =
-      hasNotesTab && Array.isArray(payload.notes)
-        ? payload.notes
-            .slice(0, 50)
-            .filter((n): n is Record<string, unknown> => Boolean(n && typeof n === 'object'))
-            .map((n) => ({
-              text: typeof n.text === 'string' ? n.text.slice(0, 2000) : '',
-            }))
-            .filter((n) => n.text.trim().length > 0)
-        : [];
+    const initialStatus =
+      workflowPlan && workflowPlan.triggered ? workflowPlan.nextStatus : 'submitted';
 
     const submission = await this.submissionRepository.createSubmission({
       organizationId: form.organization_id,
       formId: form.id,
       formVersionId: publishedVersion.id,
       referenceNumber,
-      status: 'submitted',
+      status: initialStatus,
       dataJsonb: {
         fields: sanitizedFields,
         notes: sanitizedNotes,
@@ -405,6 +452,17 @@ export class SubmissionService {
       submittedBy: null,
       detailRows,
     });
+
+    if (this.approvalRepository && workflowPlan?.triggered && workflowPlan.firstStage) {
+      await this.approvalRepository.createApprovalInstanceWithInitialStage({
+        organizationId: form.organization_id,
+        submissionId: submission.id,
+        formVersionId: publishedVersion.id,
+        workflowId: workflowPlan.workflowId,
+        cycleNumber: 1,
+        firstStage: workflowPlan.firstStage,
+      });
+    }
 
     const successTitle =
       schema.settings?.publicAccess?.successTitle || 'Thank You';
@@ -418,6 +476,253 @@ export class SubmissionService {
       status: submission.status,
       successTitle,
       successMessage,
+    };
+  }
+
+  async submitAuthenticatedForm(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+    payload: SubmitFormPayload;
+  }): Promise<SubmitAuthenticatedFormResult> {
+    const membership = await this.checkMembership(params.userId, params.organizationId);
+    const form = await this.formRepository.getFormById(params.formId, params.organizationId);
+    if (!form || form.organization_id !== params.organizationId || form.archived_at) {
+      throw new Error(`Form not found or inaccessible in organization ${params.organizationId}`);
+    }
+
+    const publishedVersion = await this.formRepository.getPublishedVersion(
+      form.id,
+      params.organizationId,
+    );
+    if (!publishedVersion) {
+      throw new Error('This form has no published version available for submission.');
+    }
+
+    const schema = publishedVersion.schema_jsonb;
+    const perms = schema.permissions || {};
+    const createRoles = perms.createRoles ?? [
+      'super_admin',
+      'business_admin',
+      'manager',
+      'employee',
+    ];
+    if (!createRoles.includes(membership.role_key)) {
+      throw new Error(
+        `Unauthorized: Role "${membership.role_key}" is not permitted to submit this form.`,
+      );
+    }
+
+    const { sanitizedFields, detailRows, sanitizedNotes } =
+      this.prepareAndValidateSubmission(schema, params.payload);
+
+    const referenceNumber = this.generateReferenceNumber(schema);
+    const workflowPlan = planWorkflowStart({
+      schema,
+      fieldValues: sanitizedFields,
+      requesterUserId: params.userId,
+      referenceNumber,
+    });
+
+    for (const [k, v] of Object.entries(workflowPlan.fieldUpdates)) {
+      sanitizedFields[k] = v;
+    }
+
+    const initialStatus = workflowPlan.triggered ? workflowPlan.nextStatus : 'submitted';
+    const dataJsonb = {
+      fields: sanitizedFields,
+      notes: sanitizedNotes,
+      documents: [],
+    };
+
+    const workflowStart =
+      workflowPlan.triggered && workflowPlan.firstStage
+        ? {
+            workflowId: workflowPlan.workflowId,
+            ...workflowPlan.firstStage,
+          }
+        : null;
+
+    let submission: FormSubmissionEntity;
+    if (typeof this.submissionRepository.createAuthenticatedSubmission === 'function') {
+      submission = await this.submissionRepository.createAuthenticatedSubmission({
+        organizationId: params.organizationId,
+        formId: form.id,
+        formVersionId: publishedVersion.id,
+        referenceNumber,
+        status: initialStatus,
+        dataJsonb,
+        detailRows,
+        workflowStart,
+      });
+    } else {
+      submission = await this.submissionRepository.createSubmission({
+        organizationId: params.organizationId,
+        formId: form.id,
+        formVersionId: publishedVersion.id,
+        referenceNumber,
+        status: initialStatus,
+        dataJsonb,
+        createdBy: params.userId,
+        submittedBy: params.userId,
+        detailRows,
+      });
+
+      if (this.approvalRepository && workflowStart) {
+        await this.approvalRepository.createApprovalInstanceWithInitialStage({
+          organizationId: params.organizationId,
+          submissionId: submission.id,
+          formVersionId: publishedVersion.id,
+          workflowId: workflowStart.workflowId,
+          cycleNumber: 1,
+          firstStage: {
+            stepId: workflowStart.stepId,
+            stageName: workflowStart.stageName,
+            assigneeIndex: workflowStart.assigneeIndex,
+            assignedApproverId: workflowStart.assignedApproverId,
+            assignedRoleKey: workflowStart.assignedRoleKey,
+          },
+        });
+      }
+    }
+
+    return {
+      submission,
+      approvalStarted: Boolean(workflowStart),
+    };
+  }
+
+  async resubmitSubmission(params: {
+    userId: string;
+    organizationId: string;
+    submissionId: string;
+    payload: SubmitFormPayload;
+  }): Promise<SubmitAuthenticatedFormResult> {
+    await this.checkMembership(params.userId, params.organizationId);
+
+    const submission = await this.submissionRepository.getSubmissionById(
+      params.submissionId,
+      params.organizationId,
+    );
+    if (!submission || submission.organization_id !== params.organizationId) {
+      throw new Error(`Submission not found or inaccessible in organization ${params.organizationId}`);
+    }
+
+    if (submission.status !== 'returned') {
+      throw new Error(
+        `SUBMISSION_NOT_RETURNED: Only returned submissions can be resubmitted (current status: ${submission.status}).`,
+      );
+    }
+
+    const requesterId = submission.submitted_by ?? submission.created_by;
+    if (!requesterId || requesterId !== params.userId) {
+      throw new Error(
+        'Unauthorized: Only the submission requester can resubmit a returned submission.',
+      );
+    }
+
+    let formVersion: FormVersionEntity | null = null;
+    if (typeof (this.formRepository as any).getVersionById === 'function') {
+      formVersion = await (this.formRepository as any).getVersionById(
+        submission.form_version_id,
+        params.organizationId,
+      );
+    }
+    if (!formVersion) {
+      const versions = await this.formRepository.listVersions(
+        submission.form_id,
+        params.organizationId,
+      );
+      formVersion = versions.find((v) => v.id === submission.form_version_id) ?? null;
+    }
+    if (!formVersion) {
+      throw new Error(`Historical form version ${submission.form_version_id} not found.`);
+    }
+
+    const schema = formVersion.schema_jsonb;
+    const { sanitizedFields, detailRows, sanitizedNotes } =
+      this.prepareAndValidateSubmission(schema, params.payload);
+
+    const workflowPlan = planWorkflowStart({
+      schema,
+      fieldValues: sanitizedFields,
+      requesterUserId: params.userId,
+      referenceNumber: submission.reference_number,
+    });
+
+    for (const [k, v] of Object.entries(workflowPlan.fieldUpdates)) {
+      sanitizedFields[k] = v;
+    }
+
+    const nextStatus = workflowPlan.triggered ? workflowPlan.nextStatus : 'submitted';
+    const existingDocs = Array.isArray(submission.data_jsonb?.documents)
+      ? submission.data_jsonb.documents
+      : [];
+    const dataJsonb = {
+      fields: sanitizedFields,
+      notes: sanitizedNotes,
+      documents: existingDocs,
+    };
+
+    const workflowStart =
+      workflowPlan.triggered && workflowPlan.firstStage
+        ? {
+            workflowId: workflowPlan.workflowId,
+            ...workflowPlan.firstStage,
+          }
+        : null;
+
+    let updated: FormSubmissionEntity;
+    if (typeof this.submissionRepository.resubmitReturnedSubmission === 'function') {
+      updated = await this.submissionRepository.resubmitReturnedSubmission({
+        organizationId: params.organizationId,
+        submissionId: submission.id,
+        status: nextStatus,
+        dataJsonb,
+        detailRows,
+        workflowStart,
+      });
+    } else {
+      // Fallback for in-memory test repositories
+      const existingHistory = this.approvalRepository
+        ? await this.approvalRepository.getSubmissionApprovalHistory(
+            submission.id,
+            params.organizationId,
+          )
+        : { instances: [], stages: [], decisions: [] };
+      const nextCycle =
+        existingHistory.instances.reduce(
+          (max, inst) => Math.max(max, inst.cycle_number),
+          0,
+        ) + 1;
+
+      submission.status = nextStatus;
+      submission.data_jsonb = dataJsonb;
+      submission.updated_at = new Date().toISOString();
+      submission.submitted_at = submission.updated_at;
+      updated = submission;
+
+      if (this.approvalRepository && workflowStart) {
+        await this.approvalRepository.createApprovalInstanceWithInitialStage({
+          organizationId: params.organizationId,
+          submissionId: submission.id,
+          formVersionId: submission.form_version_id,
+          workflowId: workflowStart.workflowId,
+          cycleNumber: nextCycle,
+          firstStage: {
+            stepId: workflowStart.stepId,
+            stageName: workflowStart.stageName,
+            assigneeIndex: workflowStart.assigneeIndex,
+            assignedApproverId: workflowStart.assignedApproverId,
+            assignedRoleKey: workflowStart.assignedRoleKey,
+          },
+        });
+      }
+    }
+
+    return {
+      submission: updated,
+      approvalStarted: Boolean(workflowStart),
     };
   }
 
@@ -669,7 +974,18 @@ export class SubmissionService {
       const canReadOwn = readOwnRoles.includes(roleKey);
 
       if (!canReadAll && !canReadOwn) {
-        throw new Error(`Unauthorized: Role "${roleKey}" is not permitted to view this submission.`);
+        const isAssignedApprover = this.approvalRepository
+          ? await this.approvalRepository.hasAssignedStageForSubmission({
+              submissionId: submission.id,
+              organizationId: params.organizationId,
+              userId: params.userId,
+              roleKey,
+            })
+          : false;
+
+        if (!isAssignedApprover) {
+          throw new Error(`Unauthorized: Role "${roleKey}" is not permitted to view this submission.`);
+        }
       }
 
       if (!canReadAll && canReadOwn) {
@@ -678,9 +994,20 @@ export class SubmissionService {
           (typeof submission.submitted_by === 'string' && submission.submitted_by === params.userId);
 
         if (!isOwner) {
-          throw new Error(
-            'Unauthorized: User is not authorized to view submissions submitted by other users.',
-          );
+          const isAssignedApprover = this.approvalRepository
+            ? await this.approvalRepository.hasAssignedStageForSubmission({
+                submissionId: submission.id,
+                organizationId: params.organizationId,
+                userId: params.userId,
+                roleKey,
+              })
+            : false;
+
+          if (!isAssignedApprover) {
+            throw new Error(
+              'Unauthorized: User is not authorized to view submissions submitted by other users.',
+            );
+          }
         }
       }
     }
@@ -689,6 +1016,20 @@ export class SubmissionService {
       submission.id,
       params.organizationId,
     );
+
+    let approval: SubmissionApprovalSummary | null = null;
+    if (this.approvalRepository) {
+      const history = await this.approvalRepository.getSubmissionApprovalHistory(
+        submission.id,
+        params.organizationId,
+      );
+      approval = summarizeSubmissionApproval(
+        history,
+        formVersion.schema_jsonb,
+        params.userId,
+        roleKey,
+      );
+    }
 
     // Format renderer value for <FormRenderer mode="readOnly" />
     const rawFields = (submission.data_jsonb?.fields as Record<string, unknown>) ?? {};
@@ -724,6 +1065,7 @@ export class SubmissionService {
       formVersion,
       detailRows,
       rendererValue,
+      approval,
     };
   }
 
@@ -733,5 +1075,98 @@ export class SubmissionService {
 
   async listSubmissions(params: SubmissionFilterParams): Promise<PaginatedSubmissionsResult> {
     return this.submissionRepository.listSubmissions(params);
+  }
+
+  async exportSubmissionsCsv(params: {
+    userId: string;
+    organizationId: string;
+    formId: string;
+    status?: string;
+    referenceNumber?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sortBy?: SubmissionSortField;
+    sortOrder?: SubmissionSortOrder;
+  }): Promise<{ csv: string; fileName: string; rowCount: number }> {
+    const membership = await this.checkMembership(params.userId, params.organizationId);
+    const roleKey = membership.role_key;
+    const isPlatformAdmin = ['super_admin', 'business_admin'].includes(roleKey);
+
+    const form = await this.formRepository.getFormById(
+      params.formId,
+      params.organizationId,
+    );
+    if (!form || form.organization_id !== params.organizationId) {
+      throw new Error(
+        `Form not found or inaccessible in organization ${params.organizationId}`,
+      );
+    }
+
+    const published = await this.formRepository.getPublishedVersion(
+      params.formId,
+      params.organizationId,
+    );
+    let schemaVersion = published;
+    if (!schemaVersion) {
+      const versions = await this.formRepository.listVersions(
+        params.formId,
+        params.organizationId,
+      );
+      schemaVersion = versions[0] ?? null;
+    }
+
+    let createdOrSubmittedBy: string | undefined;
+    if (!isPlatformAdmin) {
+      const perms = (schemaVersion?.schema_jsonb as FormSchemaV1 | undefined)?.permissions || {};
+      const readAllRoles = perms.readAllRoles ?? ['super_admin', 'business_admin', 'manager'];
+      const readOwnRoles = perms.readOwnRoles ?? [
+        'super_admin',
+        'business_admin',
+        'manager',
+        'employee',
+      ];
+
+      const canReadAll = readAllRoles.includes(roleKey);
+      const canReadOwn = readOwnRoles.includes(roleKey);
+
+      if (!canReadAll && !canReadOwn) {
+        throw new Error(
+          `Unauthorized: Role "${roleKey}" is not permitted to export submissions for this form.`,
+        );
+      }
+
+      if (!canReadAll && canReadOwn) {
+        createdOrSubmittedBy = params.userId;
+      }
+    }
+
+    const allSubmissions: FormSubmissionEntity[] = [];
+    const maxPages = 50;
+    for (let page = 1; page <= maxPages; page++) {
+      const batch = await this.submissionRepository.listSubmissions({
+        organizationId: params.organizationId,
+        formId: params.formId,
+        status: params.status,
+        referenceNumber: params.referenceNumber,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+        sortBy: params.sortBy ?? 'created_at',
+        sortOrder: params.sortOrder ?? 'desc',
+        createdOrSubmittedBy,
+        page,
+        pageSize: 100,
+      });
+
+      allSubmissions.push(...batch.submissions);
+      if (batch.totalPages === 0 || page >= batch.totalPages) {
+        break;
+      }
+    }
+
+    return buildSubmissionsCsv({
+      form,
+      schema: schemaVersion?.schema_jsonb ?? null,
+      submissions: allSubmissions,
+    });
   }
 }

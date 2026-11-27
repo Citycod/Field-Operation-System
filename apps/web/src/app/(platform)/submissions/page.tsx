@@ -15,6 +15,7 @@ import {
   Calendar,
   X,
   FileSpreadsheet,
+  Download,
 } from "lucide-react";
 import { Badge, Button, Input, EmptyState } from "@field/ui";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -56,6 +57,7 @@ function SubmissionsContent() {
 
   // Drawer state
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   // Sync initialFormId from URL param if changed
   useEffect(() => {
@@ -173,6 +175,46 @@ function SubmissionsContent() {
     setPage(1);
   };
 
+  const handleExportCsv = async () => {
+    if (!activeOrganizationId || !formFilter.trim() || exportingCsv) return;
+    setExportingCsv(true);
+    setError(null);
+    try {
+      const query = new URLSearchParams({
+        organizationId: activeOrganizationId,
+        sortBy,
+        sortOrder,
+      });
+      if (statusFilter) query.set("status", statusFilter);
+      if (referenceQuery.trim()) query.set("referenceNumber", referenceQuery.trim());
+      if (dateFrom) query.set("dateFrom", dateFrom);
+      if (dateTo) query.set("dateTo", dateTo);
+
+      const response = await fetch(
+        `/api/forms/${encodeURIComponent(formFilter.trim())}/submissions/export.csv?${query.toString()}`,
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to export CSV.");
+      }
+
+      const csvText = await response.text();
+      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${getFormTitle(formFilter.trim()).toLowerCase().replace(/[^a-z0-9]+/g, "_")}_submissions.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to export submissions CSV.");
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
   const hasActiveFilters = Boolean(
     formFilter || statusFilter || referenceQuery || dateFrom || dateTo,
   );
@@ -191,6 +233,8 @@ function SubmissionsContent() {
         return "default";
       case "draft":
       case "pending":
+      case "pending_approval":
+      case "returned":
         return "warning";
       case "rejected":
         return "error";
@@ -217,6 +261,21 @@ function SubmissionsContent() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleExportCsv()}
+            disabled={!formFilter.trim() || exportingCsv || loading}
+            title={
+              formFilter.trim()
+                ? "Export filtered submissions to CSV"
+                : "Select a specific form below to export submissions CSV"
+            }
+            className="flex items-center gap-1.5 text-xs text-slate-700 hover:bg-slate-50"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exportingCsv ? "Exporting…" : "Export CSV"}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -285,10 +344,12 @@ function SubmissionsContent() {
           >
             <option value="">All Statuses</option>
             <option value="submitted">Submitted</option>
-            <option value="completed">Completed</option>
-            <option value="draft">Draft</option>
+            <option value="pending_approval">Pending Approval</option>
+            <option value="returned">Returned</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
+            <option value="completed">Completed</option>
+            <option value="draft">Draft</option>
           </select>
         </div>
 
@@ -543,6 +604,7 @@ function SubmissionsContent() {
           submissionId={selectedSubmissionId}
           organizationId={activeOrganizationId}
           onClose={() => setSelectedSubmissionId(null)}
+          onDecisionComplete={() => void loadSubmissions()}
         />
       )}
     </div>

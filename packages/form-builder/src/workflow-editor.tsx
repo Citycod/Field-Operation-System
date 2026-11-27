@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   WORKFLOW_NOTIFICATION_EVENTS,
   WORKFLOW_OUTCOMES,
@@ -40,6 +40,7 @@ export interface WorkflowEditorProps {
   onChange: (nextSchema: FormSchemaV1) => void;
   disabled?: boolean;
   organizationMembers?: readonly BuilderMemberOption[];
+  focusStepId?: string | null;
 }
 
 const TRIGGER_OPTIONS: Array<{
@@ -114,6 +115,7 @@ export function WorkflowEditor({
   onChange,
   disabled = false,
   organizationMembers = [],
+  focusStepId = null,
 }: WorkflowEditorProps) {
   const isLegacy = isLegacySequentialWorkflow(schema.workflow);
   const workflow = useMemo(
@@ -128,6 +130,12 @@ export function WorkflowEditor({
   const [showSimulator, setShowSimulator] = useState(false);
   const [showTriggerConditions, setShowTriggerConditions] = useState(false);
   const [lastSimulation, setLastSimulation] = useState<WorkflowSimulationResult | null>(null);
+
+  useEffect(() => {
+    if (focusStepId && workflow?.steps.some((s) => s.id === focusStepId)) {
+      setSelectedStepId(focusStepId);
+    }
+  }, [focusStepId, workflow]);
 
   const availableFields = useMemo(() => collectEditableFields(schema), [schema]);
   const writableFields = useMemo(
@@ -180,6 +188,69 @@ export function WorkflowEditor({
     const created = createDefaultFlowWorkflow(schema.form.title);
     commitWorkflow(created);
     setSelectedStepId(created.steps[1]?.id ?? created.steps[0]?.id ?? null);
+  }
+
+  function handleCreateTwoStageWorkflow() {
+    const startId = "wf_start";
+    const stage1Id = defaultId("wf_approval");
+    const stage2Id = defaultId("wf_approval");
+    const endApprovedId = "wf_end_approved";
+    const endRejectedId = "wf_end_rejected";
+    const created: FlowWorkflowDefinition = {
+      id: defaultId("wf"),
+      name: `${schema.form.title || "Form"} Two-Stage Approval`,
+      description: "Direct manager reviews first, followed by department admin sign-off.",
+      enabled: true,
+      triggers: [{ id: "wf_trig_submit", type: "on_submit", enabled: true }],
+      steps: [
+        { id: startId, key: "start", name: "Submitted", type: "start" },
+        {
+          id: stage1Id,
+          key: "manager_review",
+          name: "Manager Review",
+          type: "approval",
+          mode: "single",
+          assignees: [{ type: "role", value: "manager", label: "Manager" }],
+          requireCommentOnReject: true,
+          requireCommentOnReturn: true,
+        },
+        {
+          id: stage2Id,
+          key: "final_approval",
+          name: "Final Sign-off",
+          type: "approval",
+          mode: "single",
+          assignees: [{ type: "role", value: "admin", label: "Admin" }],
+          requireCommentOnReject: true,
+          requireCommentOnReturn: true,
+        },
+        {
+          id: endApprovedId,
+          key: "approved",
+          name: "Approved",
+          type: "end",
+          outcome: "approved",
+          finalStatus: "approved",
+        },
+        {
+          id: endRejectedId,
+          key: "rejected",
+          name: "Rejected",
+          type: "end",
+          outcome: "rejected",
+          finalStatus: "rejected",
+        },
+      ],
+      transitions: [
+        { id: defaultId("wf_tr"), fromStepId: startId, toStepId: stage1Id, outcome: "default" },
+        { id: defaultId("wf_tr"), fromStepId: stage1Id, toStepId: stage2Id, outcome: "approved", label: "Approved" },
+        { id: defaultId("wf_tr"), fromStepId: stage1Id, toStepId: endRejectedId, outcome: "rejected", label: "Rejected" },
+        { id: defaultId("wf_tr"), fromStepId: stage2Id, toStepId: endApprovedId, outcome: "approved", label: "Approved" },
+        { id: defaultId("wf_tr"), fromStepId: stage2Id, toStepId: endRejectedId, outcome: "rejected", label: "Rejected" },
+      ],
+    };
+    commitWorkflow(created);
+    setSelectedStepId(stage1Id);
   }
 
   function handleUpdateStep(stepId: string, updater: (step: WorkflowStepDefinition) => WorkflowStepDefinition) {
@@ -416,18 +487,35 @@ export function WorkflowEditor({
     return (
       <div className="fb-wf-empty" data-testid="workflow-empty-state">
         <div className="fb-wf-empty-card">
+          <span className="fb-stage-eyebrow">Stage 2 · Optional Approval Routing</span>
           <h3>No Approval Workflow Configured</h3>
           <p>
-            Configure sequential or conditional approvals, task assignments, notifications, and record outcomes for this form without custom code.
+            By default, submitted forms are recorded immediately. Add an approval workflow to route
+            submissions to managers or reviewers, allow returns for correction, and notify requesters automatically.
           </p>
-          <button
-            type="button"
-            className="fb-btn-primary"
-            disabled={disabled}
-            onClick={handleCreateWorkflow}
-          >
-            + Create Workflow
-          </button>
+          <div className="fb-wf-empty-actions">
+            <button
+              type="button"
+              className="fb-btn-primary"
+              disabled={disabled}
+              onClick={handleCreateWorkflow}
+            >
+              + Create Workflow
+            </button>
+            <button
+              type="button"
+              className="fb-btn-secondary"
+              disabled={disabled}
+              onClick={handleCreateTwoStageWorkflow}
+            >
+              + 2-Stage Approval Template
+            </button>
+          </div>
+          <div className="fb-wf-empty-hints">
+            <span>✓ Visual step-by-step approval flow</span>
+            <span>✓ Choose Role or Specific Team Member</span>
+            <span>✓ Approve, Reject &amp; Return for Correction paths</span>
+          </div>
         </div>
       </div>
     );
@@ -958,7 +1046,17 @@ export function WorkflowEditor({
                       )}
                       {step.type === "approval" && (
                         <span>
-                          {step.mode.toUpperCase()} · {step.assignees.length} approver(s)
+                          {step.mode === "single"
+                            ? "Single Approver"
+                            : step.mode === "sequential"
+                              ? "In Order"
+                              : "Parallel"}{" "}
+                          ·{" "}
+                          {step.assignees.length > 0
+                            ? step.assignees
+                                .map((a) => a.label || a.value || a.type)
+                                .join(", ")
+                            : "No approver chosen yet"}
                         </span>
                       )}
                       {step.type === "assignment" && (
@@ -1123,20 +1221,26 @@ export function WorkflowEditor({
                 />
               </label>
 
-              <label className="fb-field-control">
-                <span>Step Key</span>
-                <input
-                  type="text"
-                  value={selectedStep.key}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    handleUpdateStep(selectedStep.id, (s) => ({
-                      ...s,
-                      key: slugify(e.target.value) || s.key,
-                    }))
-                  }
-                />
-              </label>
+              <details className="fb-advanced-settings">
+                <summary className="fb-advanced-summary">Advanced Step Settings</summary>
+                <div className="fb-advanced-body">
+                  <label className="fb-field-control">
+                    <span>Internal Step Key</span>
+                    <input
+                      type="text"
+                      aria-label="Step Key"
+                      value={selectedStep.key}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        handleUpdateStep(selectedStep.id, (s) => ({
+                          ...s,
+                          key: slugify(e.target.value) || s.key,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              </details>
 
               {/* START */}
               {selectedStep.type === "start" && (

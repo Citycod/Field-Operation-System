@@ -8,6 +8,7 @@ import {
   normalizeWorkflowDefinition,
 } from '../schema/workflow';
 import { evaluateConditionGroup } from '../rules/rule-evaluator';
+import { interpolateWorkflowTemplate } from './runtime';
 
 export type SimulatedApprovalDecision = 'approved' | 'rejected' | 'returned';
 
@@ -53,31 +54,6 @@ export interface WorkflowSimulationResult {
   notificationsPreview: WorkflowSimulationNotificationPreview[];
   recordUpdatesPreview: WorkflowSimulationRecordUpdatePreview[];
   errors: string[];
-}
-
-/**
- * Pure safe token interpolation (`{{fieldKey}}`) without expression evaluation.
- */
-function interpolateTemplate(
-  template: string,
-  values: Record<string, unknown>,
-  fields: readonly FieldDefinition[],
-): string {
-  const keyToVal = new Map<string, unknown>();
-  for (const [k, v] of Object.entries(values)) {
-    keyToVal.set(k, v);
-  }
-  for (const f of fields) {
-    if (Object.prototype.hasOwnProperty.call(values, f.id) && !keyToVal.has(f.key)) {
-      keyToVal.set(f.key, values[f.id]);
-    }
-  }
-
-  return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, token: string) => {
-    const val = keyToVal.get(token);
-    if (val === undefined || val === null) return `[${token}]`;
-    return String(val);
-  });
 }
 
 /**
@@ -282,8 +258,8 @@ export function simulateWorkflow(
       });
     } else {
       if (currentStep.type === 'notification') {
-        const subject = interpolateTemplate(currentStep.subjectTemplate || '', workingValues, fields);
-        const body = interpolateTemplate(currentStep.bodyTemplate || '', workingValues, fields);
+        const subject = interpolateWorkflowTemplate(currentStep.subjectTemplate || '', workingValues, fields);
+        const body = interpolateWorkflowTemplate(currentStep.bodyTemplate || '', workingValues, fields);
         result.notificationsPreview.push({
           stepId: currentStep.id,
           event: currentStep.event,
